@@ -1,32 +1,30 @@
 {% extends "base.html" %}
 
-{% block title %}Recipe Editor{% endblock %}
+{% block title %}Edit Recipes{% endblock %}
 
 {% block content %}
 
 <div class="container mt-4">
-    <h2 class="mb-4">Recipe Editor</h2>
+    <h2 class="mb-4">Edit Recipes</h2>
 
-    <!-- Tabs -->
-    <ul class="nav nav-tabs mb-4" id="editorTabs" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="edit-tab" data-bs-toggle="tab" data-bs-target="#edit" type="button" role="tab">
-                Edit Recipes
-            </button>
+    <!-- Mobile-only Recipes/Edit/Preview switcher: below lg, the two columns
+         below are collapsed into one-at-a-time panes instead of one long
+         stacked scroll. Desktop keeps showing both columns side by side,
+         so this nav (and the panes it drives) is a no-op there. -->
+    <ul class="nav nav-pills nav-fill mb-3 d-lg-none" id="editorMobileTabs">
+        <li class="nav-item">
+            <button type="button" class="nav-link active" data-mobile-tab-target="recipes">Recipes</button>
         </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="import-tab" data-bs-toggle="tab" data-bs-target="#import" type="button" role="tab">
-                Import Recipe
-            </button>
+        <li class="nav-item">
+            <button type="button" class="nav-link" data-mobile-tab-target="edit">Edit</button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link" data-mobile-tab-target="preview">Preview</button>
         </li>
     </ul>
 
-    <div class="tab-content" id="editorTabContent">
-
-        <!-- Edit Tab -->
-        <div class="tab-pane fade show active" id="edit" role="tabpanel">
-            <div class="row">
-                <div class="col-md-3">
+    <div class="row">
+                <div class="col-12 col-lg-3 mb-3 mb-lg-0 mobile-tab-pane mobile-tab-active" id="recipeListColumn" data-mobile-tab="recipes">
                     <h5>Select Recipe</h5>
 
                     <!-- Recipe Status Tabs -->
@@ -41,62 +39,90 @@
                                 Pending
                             </button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="archived-recipes-tab" data-bs-toggle="tab" data-bs-target="#archivedRecipes" type="button" role="tab">
+                                Archive
+                            </button>
+                        </li>
                     </ul>
 
                     <div class="mb-3">
                         <input type="text" id="recipeSearch" class="form-control form-control-sm" placeholder="Search recipes...">
                     </div>
 
+                    <!-- Grouping Toggle (same grouping used on the Recipes page) -->
+                    <div class="mb-2">
+                        <div class="btn-group btn-group-sm w-100" role="group">
+                            <input type="radio" class="btn-check" name="editorGroupBy" id="editorGroupByCategory" value="category" checked>
+                            <label class="btn btn-outline-primary" for="editorGroupByCategory">Category</label>
+
+                            <input type="radio" class="btn-check" name="editorGroupBy" id="editorGroupByMeal" value="meal">
+                            <label class="btn btn-outline-primary" for="editorGroupByMeal">Meal</label>
+                        </div>
+                    </div>
+
                     <div class="tab-content">
                         <div class="tab-pane fade show active" id="savedRecipes" role="tabpanel">
                             <div id="savedRecipeList" style="max-height: 65vh; overflow-y: auto; padding-right: 4px;">
-                                <div class="text-center p-3 text-muted">Loading recipes...</div>
+                                <div id="savedCategoryGroups"><div class="text-center p-3 text-muted">Loading recipes...</div></div>
+                                <div id="savedMealGroups" style="display: none;"></div>
                             </div>
                         </div>
                         <div class="tab-pane fade" id="pendingRecipes" role="tabpanel">
                             <div id="pendingRecipeList" style="max-height: 65vh; overflow-y: auto; padding-right: 4px;">
-                                <div class="text-center p-3 text-muted">Loading recipes...</div>
+                                <div id="pendingCategoryGroups"><div class="text-center p-3 text-muted">Loading recipes...</div></div>
+                                <div id="pendingMealGroups" style="display: none;"></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="archivedRecipes" role="tabpanel">
+                            <div id="archivedRecipeList" style="max-height: 65vh; overflow-y: auto; padding-right: 4px;">
+                                <div id="archivedCategoryGroups"><div class="text-center p-3 text-muted">Loading recipes...</div></div>
+                                <div id="archivedMealGroups" style="display: none;"></div>
                             </div>
                         </div>
                     </div>
                     <style>
                         /* Override recipe-item for editor - allow text wrapping */
                         #savedRecipeList .recipe-item,
-                        #pendingRecipeList .recipe-item {
+                        #pendingRecipeList .recipe-item,
+                        #archivedRecipeList .recipe-item {
                             cursor: pointer;
                             min-height: auto;
                         }
                         #savedRecipeList .recipe-item span,
-                        #pendingRecipeList .recipe-item span {
+                        #pendingRecipeList .recipe-item span,
+                        #archivedRecipeList .recipe-item span {
                             word-wrap: break-word;
                             overflow-wrap: break-word;
                             white-space: normal;
                             line-height: 1.4;
                         }
                         #savedRecipeList .recipe-item .d-flex,
-                        #pendingRecipeList .recipe-item .d-flex {
+                        #pendingRecipeList .recipe-item .d-flex,
+                        #archivedRecipeList .recipe-item .d-flex {
                             align-items: flex-start;
                             gap: 8px;
                         }
-                        #recipeList .recipe-group h5 {
+                        #savedRecipeList .recipe-group h5,
+                        #pendingRecipeList .recipe-group h5,
+                        #archivedRecipeList .recipe-group h5 {
                             position: sticky;
                             top: 0;
                             background: white;
                             z-index: 1;
                             padding: 8px 0;
                         }
-                        /* Style status badges */
-                        #savedStatus, #unsavedStatus {
-                            font-size: 0.75rem;
-                            padding: 0.5em 0.75em;
-                            font-weight: 600;
-                        }
                         /* Make all action buttons same height */
-                        #saveBtn, #moveBtn, #deleteBtn {
+                        #saveBtn, #moveBtn, #archiveBtn, #deleteBtn {
                             height: 38px;
                             padding: 0.375rem 0.75rem;
                             font-size: 1rem;
                             line-height: 1.5;
+                        }
+                        /* Saved/Save & Preview is one button: muted + disabled when
+                           clean, active blue when there are unsaved changes. */
+                        #saveBtn:disabled {
+                            opacity: 1;
                         }
                         /* Recipe status tabs styling */
                         #recipeStatusTabs {
@@ -105,41 +131,192 @@
                         #recipeStatusTabs .nav-link {
                             padding: 0.4rem 0.8rem;
                         }
+                        /* Plain flex centering (no Bootstrap .d-flex) so a
+                           jQuery .hide()/.show() toggle isn't fighting an
+                           !important utility class and leaving this visible
+                           at the same time as the image it's a placeholder for. */
+                        #recipeImageEmpty {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                        /* Mobile Recipes/Edit/Preview switcher: below lg, only the
+                           pane matching the active mobile tab is shown - each pane
+                           lists every mobile tab it belongs to (space-separated) in
+                           data-mobile-tab, e.g. editorColumn belongs to both "edit"
+                           and "preview" since it hosts both panes. Desktop (lg+)
+                           ignores all of this and shows the normal two-column layout. */
+                        @media (max-width: 991.98px) {
+                            .mobile-tab-pane {
+                                display: none;
+                            }
+                            .mobile-tab-pane.mobile-tab-active {
+                                display: block;
+                            }
+                        }
                     </style>
                 </div>
 
-                <div class="col-md-9">
+                <div class="col-12 col-lg-9 mobile-tab-pane" id="editorColumn" data-mobile-tab="edit preview">
                     <div id="editorContainer" style="display: none;">
+                      <div class="mobile-tab-pane mobile-tab-active" data-mobile-tab="edit">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h5 id="currentRecipeName" class="mb-0"></h5>
-                            <div class="d-flex align-items-center gap-2">
-                                <span id="savedStatus" class="badge bg-success align-self-center">Saved</span>
-                                <span id="unsavedStatus" class="badge bg-danger align-self-center" style="display: none;">Unsaved Changes</span>
-                                <button id="saveBtn" class="btn btn-primary">Save & Preview</button>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <button id="saveBtn" class="btn btn-success" disabled>Saved</button>
                                 <button id="moveBtn" class="btn btn-secondary" style="display: none;">
                                     <span id="moveBtnText">Move to Pending</span>
+                                </button>
+                                <button id="archiveBtn" class="btn btn-outline-secondary" style="display: none;">
+                                    <span id="archiveBtnText">Archive</span>
                                 </button>
                                 <button id="deleteBtn" class="btn btn-danger">Delete</button>
                             </div>
                         </div>
 
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold">Recipe Metadata (YAML)</label>
-                                <textarea id="yamlEditor" class="form-control font-monospace" rows="15" style="font-size: 0.9em;"></textarea>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold">Recipe Markdown</label>
-                                <textarea id="markdownEditor" class="form-control font-monospace" rows="15" style="font-size: 0.9em;"></textarea>
+                        <!-- Recipe Image -->
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <img id="recipeImagePreview" src="" alt="Recipe image" style="display: none; height: 90px; width: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6;">
+                            <div id="recipeImageEmpty" class="text-muted small border rounded" style="height: 90px; width: 120px; background: #f8f9fa;">No image</div>
+                            <div class="d-flex flex-column gap-1">
+                                <input type="file" id="recipeImageInput" accept="image/*" style="display: none;">
+                                <button id="recipeImageActionBtn" class="btn btn-sm btn-outline-secondary" type="button">Add Image</button>
+                                <div id="recipeImageWidthWrap" class="d-flex align-items-center gap-2" style="display: none;">
+                                    <label for="recipeImageWidth" class="form-label small mb-0 text-muted">Width (px)</label>
+                                    <input type="number" id="recipeImageWidth" class="form-control form-control-sm" style="width: 90px;" min="100" max="1200" step="10">
+                                </div>
                             </div>
                         </div>
 
+                        <!-- Editor Tabs -->
+                        <ul class="nav nav-tabs mb-3" id="editorModeTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="details-editor-tab" data-bs-toggle="tab" data-bs-target="#detailsEditorPane" type="button" role="tab">
+                                    Recipe Details
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="content-editor-tab" data-bs-toggle="tab" data-bs-target="#contentEditorPane" type="button" role="tab">
+                                    Ingredients &amp; Instructions
+                                </button>
+                            </li>
+                        </ul>
+
+                        <div id="yamlErrorWarning" class="alert alert-danger" style="display: none;"></div>
+
+                        <div class="tab-content mb-3" id="editorModeTabContent">
+                            <div class="tab-pane fade show active" id="detailsEditorPane" role="tabpanel">
+                                <div class="row g-3 mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Name</label>
+                                        <input type="text" id="metaName" class="form-control">
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label">Servings</label>
+                                        <input type="number" min="0" id="metaServings" class="form-control">
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label">Min Period (weeks)</label>
+                                        <input type="number" min="0" id="metaMinPeriodWeeks" class="form-control">
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <label class="form-label">Category</label>
+                                        <select id="metaCategory" class="form-select">
+                                            <option value="ENTREE">Entree</option>
+                                            <option value="SALAD">Salad</option>
+                                            <option value="DESSERT">Dessert</option>
+                                            <option value="SIDE">Side</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <label class="form-label">Meal</label>
+                                        <select id="metaMeal" class="form-select">
+                                            <option value="BREAKFAST">Breakfast</option>
+                                            <option value="LUNCH">Lunch</option>
+                                            <option value="DINNER">Dinner</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 d-flex align-items-end">
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" id="metaEnabled">
+                                            <label class="form-check-label" for="metaEnabled">Enabled (included in shopping-list rotation)</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h6>Shopping List Ingredients</h6>
+                                <table class="table table-sm align-middle ingredients-table" id="ingredientsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Food</th>
+                                            <th style="width: 30%;">Quantity</th>
+                                            <th style="width: 1%;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ingredientsTableBody"></tbody>
+                                </table>
+                                <button id="addIngredientRowBtn" class="btn btn-sm btn-outline-secondary" type="button">+ Add Ingredient</button>
+                                <datalist id="knownFoodsList"></datalist>
+                                <style>
+                                    /* Plain, compact table instead of a grid of bordered/rounded input boxes */
+                                    .ingredients-table {
+                                        border-top: 1px solid #dee2e6;
+                                    }
+                                    .ingredients-table td {
+                                        padding: 2px 6px;
+                                    }
+                                    .ingredients-table .form-control {
+                                        border: none;
+                                        background: transparent;
+                                        border-radius: 0;
+                                        box-shadow: none;
+                                        padding: 0.25rem 0.4rem;
+                                    }
+                                    .ingredients-table .form-control:focus {
+                                        background: #f0f6ff;
+                                        outline: 1px solid var(--primary-blue);
+                                        outline-offset: -1px;
+                                    }
+                                    .ingredients-table .remove-ingredient-row {
+                                        border: none;
+                                        background: transparent;
+                                        color: #adb5bd;
+                                        font-size: 1.1rem;
+                                        line-height: 1;
+                                        padding: 0 6px;
+                                    }
+                                    .ingredients-table .remove-ingredient-row:hover {
+                                        color: #dc3545;
+                                    }
+                                </style>
+                            </div>
+
+                            <div class="tab-pane fade" id="contentEditorPane" role="tabpanel">
+                                <div id="markdownSplitWarning" class="alert alert-warning" style="display: none;">
+                                    Couldn't automatically split this recipe's existing content into Ingredients/Instructions —
+                                    please review the Instructions box below and move anything that belongs in Ingredients up.
+                                </div>
+                                <p class="text-muted small">Title, "Servings:", and the recipe image are generated automatically from the Recipe Details tab and the image above — no need to include them here.</p>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Ingredients (markdown)</label>
+                                    <textarea id="ingredientsMdEditor" class="form-control font-monospace" rows="8" style="font-size: 0.9em;"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Instructions (markdown)</label>
+                                    <textarea id="instructionsMdEditor" class="form-control font-monospace" rows="14" style="font-size: 0.9em;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                      </div>
+
+                      <div class="mobile-tab-pane" data-mobile-tab="preview">
                         <div class="mt-4">
                             <h5>Preview</h5>
                             <div id="markdownPreview" class="border p-3 markdown-content" style="min-height: 200px; background: #f8f9fa;">
                                 <em class="text-muted">Preview will appear here after saving...</em>
                             </div>
                         </div>
+                      </div>
                     </div>
 
                     <div id="editorPlaceholder" class="text-center p-5 text-muted">
@@ -147,78 +324,108 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Import Tab -->
-        <div class="tab-pane fade" id="import" role="tabpanel">
-            <div class="row justify-content-center">
-                <div class="col-md-8">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Import Recipe with Gemini AI</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="mb-3">
-                                <label for="recipeUrl" class="form-label">Recipe URL</label>
-                                <input type="url" class="form-control" id="recipeUrl" placeholder="https://example.com/recipe">
-                            </div>
-
-                            <div class="text-center mb-3">
-                                <strong>OR</strong>
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="recipeText" class="form-label">Paste Recipe Text</label>
-                                <textarea class="form-control" id="recipeText" rows="6" placeholder="Paste recipe content here..."></textarea>
-                            </div>
-
-                            <div class="mb-3">
-                                <button id="extractBtn" class="btn btn-primary w-100">Extract Recipe</button>
-                            </div>
-
-                            <div id="importStatus" class="alert" style="display: none;"></div>
-
-                            <div id="importPreview" style="display: none;">
-                                <hr>
-                                <h5>Extracted Recipe</h5>
-                                <div class="mb-3">
-                                    <strong>Recipe Name:</strong> <span id="extractedName"></span>
-                                </div>
-                                <div class="mb-3">
-                                    <strong>Slug:</strong> <span id="extractedSlug"></span>
-                                </div>
-                                <div class="mb-3">
-                                    <strong>Source:</strong> <span id="extractedSource"></span>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label fw-bold">Preview</label>
-                                    <div id="extractedPreview" class="border p-3 markdown-content" style="max-height: 400px; overflow-y: auto; background: #f8f9fa;"></div>
-                                </div>
-                                <button id="confirmImportBtn" class="btn btn-success w-100">Save to Pending Recipes</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div>
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="{{ url_for('static', filename='scripts/recipe_grouping.js') }}"></script>
 <script>
 $(document).ready(function() {
     let currentRecipe = null;
     let allRecipes = [];
     let hasUnsavedChanges = false;
-    let originalYaml = '';
-    let originalMarkdown = '';
+    let originalStateJson = '';
+
+    // Mobile Recipes/Edit/Preview switcher (see .mobile-tab-pane CSS above).
+    // No-op above the lg breakpoint, where both columns show at once as before.
+    function setMobileTab(tab) {
+        $('.mobile-tab-pane').each(function() {
+            const tabs = ($(this).data('mobile-tab') || '').toString().split(/\s+/);
+            $(this).toggleClass('mobile-tab-active', tabs.includes(tab));
+        });
+        $('#editorMobileTabs .nav-link').each(function() {
+            $(this).toggleClass('active', $(this).data('mobile-tab-target') === tab);
+        });
+        window.scrollTo(0, 0);
+    }
+
+    $('#editorMobileTabs .nav-link').on('click', function() {
+        setMobileTab($(this).data('mobile-tab-target'));
+    });
+
+    // Populate the ingredient-food autocomplete once
+    $.get('/editor/foods', function(response) {
+        if (response.success) {
+            $('#knownFoodsList').html(response.foods.map(f => `<option value="${f}">`).join(''));
+        }
+    });
+
+    // Build one ingredient row for the Shopping List Ingredients table
+    function renderIngredientRow(food, quantity) {
+        return $(`
+            <tr>
+                <td><input type="text" class="form-control form-control-sm ingredient-food" list="knownFoodsList" value="${food || ''}"></td>
+                <td><input type="text" class="form-control form-control-sm ingredient-quantity" placeholder="e.g. 2 cups, 3, or blank" value="${quantity || ''}"></td>
+                <td><button type="button" class="btn btn-sm remove-ingredient-row" aria-label="Remove ingredient">&times;</button></td>
+            </tr>
+        `);
+    }
+
+    $(document).on('click', '#addIngredientRowBtn', function() {
+        $('#ingredientsTableBody').append(renderIngredientRow('', ''));
+    });
+
+    $(document).on('click', '.remove-ingredient-row', function() {
+        $(this).closest('tr').remove();
+        $('#editorContainer').trigger('input');
+    });
+
+    // Snapshot every editable field for dirty-checking and for the save payload
+    function getFormState() {
+        const ingredients = [];
+        $('#ingredientsTableBody tr').each(function() {
+            ingredients.push({
+                food: $(this).find('.ingredient-food').val().trim(),
+                quantity: $(this).find('.ingredient-quantity').val().trim()
+            });
+        });
+        return {
+            name: $('#metaName').val(),
+            servings: $('#metaServings').val(),
+            category: $('#metaCategory').val(),
+            meal: $('#metaMeal').val(),
+            enabled: $('#metaEnabled').is(':checked'),
+            min_period_weeks: $('#metaMinPeriodWeeks').val(),
+            ingredients: ingredients,
+            ingredients_md: $('#ingredientsMdEditor').val(),
+            instructions_md: $('#instructionsMdEditor').val()
+        };
+    }
+
+    // Populate the form from a GET /editor/recipe response
+    function setFormState(response) {
+        const m = response.metadata;
+        $('#metaName').val(m.name);
+        $('#metaServings').val(m.servings);
+        $('#metaCategory').val(m.category);
+        $('#metaMeal').val(m.meal);
+        $('#metaEnabled').prop('checked', !!m.enabled);
+        $('#metaMinPeriodWeeks').val(m.min_period_weeks);
+
+        $('#ingredientsTableBody').empty();
+        m.ingredients.forEach(ing => $('#ingredientsTableBody').append(renderIngredientRow(ing.food, ing.quantity)));
+
+        $('#ingredientsMdEditor').val(response.ingredients_md);
+        $('#instructionsMdEditor').val(response.instructions_md);
+
+        $('#yamlErrorWarning').toggle(!!response.yaml_error).text('Couldn\'t read recipe.yaml: ' + (response.yaml_error || '') + ' — saving will rewrite it from the form below.');
+        $('#markdownSplitWarning').toggle(!response.markdown_matched);
+    }
 
     // Load all recipes
     function loadRecipes() {
         $.get('/editor/recipes', function(response) {
             if (response.success) {
-                allRecipes = [...response.saved, ...response.pending];
+                allRecipes = [...response.saved, ...response.pending, ...response.archived];
                 renderRecipeList(allRecipes);
 
                 // Check for last selected recipe
@@ -232,21 +439,15 @@ $(document).ready(function() {
                         // Switch to appropriate tab
                         if (lastStatus === 'pending') {
                             $('#pending-recipes-tab').tab('show');
+                        } else if (lastStatus === 'archived') {
+                            $('#archived-recipes-tab').tab('show');
                         } else {
                             $('#saved-recipes-tab').tab('show');
                         }
 
                         // Small delay to let tabs render
                         setTimeout(function() {
-                            let $item;
-                            if (lastStatus === 'pending') {
-                                $item = $(`#pendingRecipeList .recipe-item[data-slug="${lastSelected}"][data-status="${lastStatus}"]`);
-                            } else {
-                                $item = $(`#savedRecipeList .recipe-item[data-slug="${lastSelected}"][data-status="${lastStatus}"]`);
-                            }
-                            if ($item.length) {
-                                $item.click();
-                            }
+                            loadRecipeForEditing(lastSelected, lastStatus);
                         }, 100);
                     }
                 }
@@ -254,76 +455,122 @@ $(document).ready(function() {
         });
     }
 
-    // Render recipe list
+    // Build the markup for one recipe row (same list-group item look as the
+    // Recipes page; see recipe_grouping.js for the shared grouping logic)
+    function renderEditorRecipeItem(recipe) {
+        return $(`
+            <div class="recipe-item" data-slug="${recipe.slug}" data-status="${recipe.status}">
+                <span>${recipe.name}</span>
+            </div>
+        `);
+    }
+
+    // Render recipe list, grouped by category and by meal (same grouping as the Recipes page)
     function renderRecipeList(recipes) {
         const savedRecipes = recipes.filter(r => r.status === 'saved');
         const pendingRecipes = recipes.filter(r => r.status === 'pending');
+        const archivedRecipes = recipes.filter(r => r.status === 'archived');
 
-        // Render saved recipes
-        const $savedList = $('#savedRecipeList');
-        $savedList.empty();
-        if (savedRecipes.length === 0) {
-            $savedList.append('<div class="text-center p-3 text-muted">No saved recipes</div>');
-        } else {
-            savedRecipes.forEach(recipe => {
-                const $item = $(`
-                    <div class="recipe-item" data-slug="${recipe.slug}" data-status="${recipe.status}">
-                        <span>${recipe.name}</span>
-                    </div>
-                `);
-                $savedList.append($item);
-            });
-        }
+        renderGroupedRecipes($('#savedCategoryGroups'), savedRecipes, 'category', renderEditorRecipeItem, 'No saved recipes');
+        renderGroupedRecipes($('#savedMealGroups'), savedRecipes, 'meal', renderEditorRecipeItem, 'No saved recipes');
+        renderGroupedRecipes($('#pendingCategoryGroups'), pendingRecipes, 'category', renderEditorRecipeItem, 'No pending recipes');
+        renderGroupedRecipes($('#pendingMealGroups'), pendingRecipes, 'meal', renderEditorRecipeItem, 'No pending recipes');
+        renderGroupedRecipes($('#archivedCategoryGroups'), archivedRecipes, 'category', renderEditorRecipeItem, 'No archived recipes');
+        renderGroupedRecipes($('#archivedMealGroups'), archivedRecipes, 'meal', renderEditorRecipeItem, 'No archived recipes');
 
-        // Render pending recipes
-        const $pendingList = $('#pendingRecipeList');
-        $pendingList.empty();
-        if (pendingRecipes.length === 0) {
-            $pendingList.append('<div class="text-center p-3 text-muted">No pending recipes</div>');
-        } else {
-            pendingRecipes.forEach(recipe => {
-                const $item = $(`
-                    <div class="recipe-item" data-slug="${recipe.slug}" data-status="${recipe.status}">
-                        <span>${recipe.name}</span>
-                    </div>
-                `);
-                $pendingList.append($item);
-            });
+        // Re-apply active state to the recipe currently being edited (each
+        // recipe appears twice - once in the category groups, once in the meal groups)
+        if (currentRecipe) {
+            $(`.recipe-item[data-slug="${currentRecipe.slug}"][data-status="${currentRecipe.status}"]`).addClass('active');
         }
     }
 
-    // Search recipes
+    // Handle grouping toggle (same Category/Meal grouping as the Recipes page)
+    $('input[name="editorGroupBy"]').change(function() {
+        const groupBy = $(this).val();
+        if (groupBy === 'category') {
+            $('#savedCategoryGroups, #pendingCategoryGroups, #archivedCategoryGroups').show();
+            $('#savedMealGroups, #pendingMealGroups, #archivedMealGroups').hide();
+        } else if (groupBy === 'meal') {
+            $('#savedCategoryGroups, #pendingCategoryGroups, #archivedCategoryGroups').hide();
+            $('#savedMealGroups, #pendingMealGroups, #archivedMealGroups').show();
+        }
+    });
+
+    // Search recipes (fuzzy match on name/slug, same matcher as the Recipes page)
     $('#recipeSearch').on('input', function() {
-        const query = $(this).val().toLowerCase();
-        if (query === '') {
-            renderRecipeList(allRecipes);
-        } else {
-            const filtered = allRecipes.filter(r =>
-                r.name.toLowerCase().includes(query) ||
-                r.slug.toLowerCase().includes(query)
-            );
-            renderRecipeList(filtered);
-        }
+        const query = $(this).val().toLowerCase().trim();
+        const filtered = allRecipes.filter(r => recipeMatchesSearch(r, query, ['name', 'slug']));
+        renderRecipeList(filtered);
     });
 
-    // Track changes in editors
-    $('#yamlEditor, #markdownEditor').on('input', function() {
-        const currentYaml = $('#yamlEditor').val();
-        const currentMarkdown = $('#markdownEditor').val();
-        hasUnsavedChanges = (currentYaml !== originalYaml || currentMarkdown !== originalMarkdown);
-
-        // Update badge visibility
-        if (hasUnsavedChanges) {
-            $('#savedStatus').hide();
-            $('#unsavedStatus').show();
+    // The Saved/Save & Preview button is one element: muted + disabled when
+    // the form matches what's on disk, active blue when it doesn't.
+    function setSaveButtonState(dirty) {
+        const btn = $('#saveBtn');
+        if (dirty) {
+            btn.text('Save & Preview').removeClass('btn-success').addClass('btn-primary').prop('disabled', false);
         } else {
-            $('#unsavedStatus').hide();
-            $('#savedStatus').show();
+            btn.text('Saved').removeClass('btn-primary').addClass('btn-success').prop('disabled', true);
         }
+    }
+
+    // Track changes across the whole form (metadata fields, ingredient rows, markdown boxes)
+    $('#editorContainer').on('input change', function() {
+        hasUnsavedChanges = (JSON.stringify(getFormState()) !== originalStateJson);
+        setSaveButtonState(hasUnsavedChanges);
     });
 
-    // Load recipe for editing
-    $(document).on('click', '#savedRecipeList .recipe-item, #pendingRecipeList .recipe-item', function(e) {
+    // Load recipe for editing (shared function)
+    function loadRecipeForEditing(slug, status) {
+        // Remove active class from all recipe items
+        $('#savedRecipeList .recipe-item, #pendingRecipeList .recipe-item, #archivedRecipeList .recipe-item').removeClass('active');
+        // Add active class to the selected item
+        $(`#savedRecipeList .recipe-item[data-slug="${slug}"][data-status="${status}"], #pendingRecipeList .recipe-item[data-slug="${slug}"][data-status="${status}"], #archivedRecipeList .recipe-item[data-slug="${slug}"][data-status="${status}"]`).addClass('active');
+
+        $.get(`/editor/recipe/${status}/${slug}`, function(response) {
+            if (response.success) {
+                currentRecipe = { slug, status };
+                $('#currentRecipeName').text(slug.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()));
+
+                // Save to localStorage
+                localStorage.setItem('lastSelectedRecipe', slug);
+                localStorage.setItem('lastSelectedStatus', status);
+
+                // "Move to..." button text doubles as the recipe's current status.
+                // Archived recipes only move back to saved, via the Archive/Restore
+                // button below - not via this saved<->pending toggle.
+                if (status === 'archived') {
+                    $('#moveBtn').hide();
+                } else {
+                    $('#moveBtnText').text(status === 'pending' ? 'Move to Saved' : 'Move to Pending');
+                    $('#moveBtn').show();
+                }
+
+                $('#archiveBtnText').text(status === 'archived' ? 'Restore to Saved' : 'Archive');
+                $('#archiveBtn').show();
+
+                setFormState(response);
+
+                // Store original state snapshot
+                originalStateJson = JSON.stringify(getFormState());
+                hasUnsavedChanges = false;
+                setSaveButtonState(false);
+
+                updateImageUI(response.image_url, response.image_width);
+
+                $('#editorPlaceholder').hide();
+                $('#editorContainer').show();
+
+                $('#markdownPreview').html(response.preview_html || '<em class="text-muted">Nothing to preview yet.</em>');
+
+                setMobileTab('edit');
+            }
+        });
+    }
+
+    // Load recipe for editing (click handler)
+    $(document).on('click', '#savedRecipeList .recipe-item, #pendingRecipeList .recipe-item, #archivedRecipeList .recipe-item', function(e) {
         e.preventDefault();
 
         // Warn if there are unsaved changes
@@ -336,70 +583,14 @@ $(document).ready(function() {
         const slug = $(this).data('slug');
         const status = $(this).data('status');
 
-        // Remove active class from all recipe items
-        $('#savedRecipeList .recipe-item, #pendingRecipeList .recipe-item').removeClass('active');
-        $(this).addClass('active');
-
-        $.get(`/editor/recipe/${status}/${slug}`, function(response) {
-            if (response.success) {
-                currentRecipe = { slug, status };
-                $('#currentRecipeName').text(slug.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()));
-
-                // Save to localStorage
-                localStorage.setItem('lastSelectedRecipe', slug);
-                localStorage.setItem('lastSelectedStatus', status);
-
-                // Update status badges
-                $('#unsavedStatus').hide();
-                if (status === 'pending') {
-                    $('#savedStatus').text('Pending').removeClass('bg-success').addClass('bg-warning').show();
-                    $('#moveBtnText').text('Move to Saved');
-                    $('#moveBtn').show();
-                } else {
-                    $('#savedStatus').text('Saved').removeClass('bg-warning').addClass('bg-success').show();
-                    $('#moveBtnText').text('Move to Pending');
-                    $('#moveBtn').show();
-                }
-
-                $('#yamlEditor').val(response.yaml);
-                $('#markdownEditor').val(response.markdown);
-
-                // Store original content
-                originalYaml = response.yaml;
-                originalMarkdown = response.markdown;
-                hasUnsavedChanges = false;
-
-                $('#editorPlaceholder').hide();
-                $('#editorContainer').show();
-
-                // Render preview immediately
-                $.ajax({
-                    url: '/editor/preview',
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({
-                        markdown: response.markdown,
-                        slug: slug
-                    }),
-                    success: function(previewResponse) {
-                        $('#markdownPreview').html(previewResponse.html);
-                    },
-                    error: function() {
-                        $('#markdownPreview').html('<em class="text-muted">Failed to render preview</em>');
-                    }
-                });
-            }
-        });
+        loadRecipeForEditing(slug, status);
     });
 
     // Save recipe
     $('#saveBtn').click(function() {
         if (!currentRecipe) return;
 
-        const data = {
-            yaml: $('#yamlEditor').val(),
-            markdown: $('#markdownEditor').val()
-        };
+        const data = getFormState();
 
         const btn = $(this);
         btn.prop('disabled', true).text('Saving...');
@@ -410,34 +601,19 @@ $(document).ready(function() {
             contentType: 'application/json',
             data: JSON.stringify(data),
             success: function(response) {
-                // Update original content
-                originalYaml = data.yaml;
-                originalMarkdown = data.markdown;
+                // Update original state snapshot
+                originalStateJson = JSON.stringify(data);
                 hasUnsavedChanges = false;
+                setSaveButtonState(false);
+                $('#yamlErrorWarning').hide();
 
-                // Update badges
-                $('#unsavedStatus').hide();
-                $('#savedStatus').show();
+                $('#markdownPreview').html(response.preview_html);
 
-                // Generate preview
-                $.ajax({
-                    url: '/editor/preview',
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({
-                        markdown: data.markdown,
-                        slug: currentRecipe.slug
-                    }),
-                    success: function(previewResponse) {
-                        $('#markdownPreview').html(previewResponse.html);
-                    }
-                });
+                setMobileTab('preview');
             },
             error: function(xhr) {
                 alert('Error: ' + (xhr.responseJSON?.error || 'Failed to save recipe'));
-            },
-            complete: function() {
-                btn.prop('disabled', false).text('Save & Preview');
+                setSaveButtonState(true);
             }
         });
     });
@@ -471,6 +647,44 @@ $(document).ready(function() {
             $('#editorPlaceholder').show();
             currentRecipe = null;
             hasUnsavedChanges = false;
+            setMobileTab('recipes');
+        }).fail(function(xhr) {
+            alert('Error: ' + (xhr.responseJSON?.error || `Failed to ${actionText} recipe`));
+        });
+    });
+
+    // Archive recipe (from saved or pending), or restore an archived one back to saved
+    $('#archiveBtn').click(function() {
+        if (!currentRecipe) return;
+
+        if (hasUnsavedChanges) {
+            if (!confirm('You have unsaved changes. Save before moving?')) return;
+        }
+
+        const restoring = currentRecipe.status === 'archived';
+        const actionText = restoring ? 'restore' : 'archive';
+
+        if (!confirm(restoring
+            ? `Restore "${currentRecipe.slug}" to saved recipes?`
+            : `Archive "${currentRecipe.slug}"?`)) return;
+
+        const url = restoring
+            ? `/editor/unarchive/${currentRecipe.slug}`
+            : `/editor/archive/${currentRecipe.slug}`;
+
+        $.post(url, function(response) {
+            // No success alert - just reload
+
+            // Clear last selected since it moved
+            localStorage.removeItem('lastSelectedRecipe');
+            localStorage.removeItem('lastSelectedStatus');
+
+            loadRecipes();
+            $('#editorContainer').hide();
+            $('#editorPlaceholder').show();
+            currentRecipe = null;
+            hasUnsavedChanges = false;
+            setMobileTab('recipes');
         }).fail(function(xhr) {
             alert('Error: ' + (xhr.responseJSON?.error || `Failed to ${actionText} recipe`));
         });
@@ -484,6 +698,8 @@ $(document).ready(function() {
 
         const url = currentRecipe.status === 'pending'
             ? `/pending/discard/${currentRecipe.slug}`
+            : currentRecipe.status === 'archived'
+            ? `/editor/delete_archived/${currentRecipe.slug}`
             : `/editor/delete/${currentRecipe.slug}`;
 
         $.post(url, function(response) {
@@ -498,105 +714,109 @@ $(document).ready(function() {
             $('#editorPlaceholder').show();
             currentRecipe = null;
             hasUnsavedChanges = false;
+            setMobileTab('recipes');
         }).fail(function(xhr) {
             alert('Error: ' + (xhr.responseJSON?.error || 'Failed to delete recipe'));
         });
     });
 
-    // Import tab - Extract recipe
-    $('#extractBtn').click(function() {
-        const url = $('#recipeUrl').val().trim();
-        const text = $('#recipeText').val().trim();
+    // Reflect the recipe's current image (or lack of one) in the UI. There's
+    // only ever one image (or none) per recipe, so a single button does
+    // double duty: "Add Image" when there isn't one, "Remove Image" when there is.
+    function updateImageUI(url, width) {
+        const hasImage = !!url;
 
-        if (!url && !text) {
-            alert('Please provide either a URL or recipe text');
+        if (hasImage) {
+            // Bust cache so a replaced image shows immediately
+            $('#recipeImagePreview').attr('src', url + '?t=' + Date.now()).show();
+            $('#recipeImageEmpty').hide();
+            $('#recipeImageWidth').val(width || 400);
+        } else {
+            $('#recipeImagePreview').hide().attr('src', '');
+            $('#recipeImageEmpty').show();
+        }
+
+        $('#recipeImageActionBtn').text(hasImage ? 'Remove Image' : 'Add Image').data('hasImage', hasImage);
+        $('#recipeImageWidthWrap').toggle(hasImage);
+    }
+
+    // The single image button: opens the file picker when there's no image,
+    // removes the existing one otherwise.
+    $('#recipeImageActionBtn').click(function() {
+        if (!$(this).data('hasImage')) {
+            $('#recipeImageInput').click();
             return;
         }
 
-        const btn = $(this);
-        btn.prop('disabled', true).text('Extracting...');
-        $('#importStatus').hide();
-        $('#importPreview').hide();
+        if (!currentRecipe) return;
+        if (!confirm('Remove the image from this recipe?')) return;
 
         $.ajax({
-            url: '/import/extract',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ url, text }),
+            url: `/editor/recipe/${currentRecipe.status}/${currentRecipe.slug}/image`,
+            type: 'DELETE',
             success: function(response) {
-                $('#extractedName').text(response.recipe.name);
-                $('#extractedSlug').text(response.slug);
-                $('#extractedSource').text(response.source);
-
-                // Render markdown preview
-                const html = response.markdown_preview.split('\n').map(line => {
-                    if (line.startsWith('# ')) return '<h1>' + line.slice(2) + '</h1>';
-                    if (line.startsWith('## ')) return '<h2>' + line.slice(3) + '</h2>';
-                    if (line.startsWith('- ')) return '<li>' + line.slice(2) + '</li>';
-                    if (line.match(/^\d+\./)) return '<li>' + line.slice(line.indexOf('.') + 1) + '</li>';
-                    return '<p>' + line + '</p>';
-                }).join('');
-                $('#extractedPreview').html(html);
-
-                $('#importPreview').show();
+                updateImageUI(null);
+                $('#markdownPreview').html(response.preview_html);
             },
             error: function(xhr) {
-                $('#importStatus')
-                    .removeClass('alert-success')
-                    .addClass('alert-danger')
-                    .text('Error: ' + (xhr.responseJSON?.error || 'Failed to extract recipe'))
-                    .show();
+                alert('Error: ' + (xhr.responseJSON?.error || 'Failed to remove image'));
+            }
+        });
+    });
+
+    // Upload the chosen image file
+    $('#recipeImageInput').on('change', function() {
+        if (!currentRecipe || !this.files.length) return;
+
+        const formData = new FormData();
+        formData.append('image', this.files[0]);
+
+        $.ajax({
+            url: `/editor/recipe/${currentRecipe.status}/${currentRecipe.slug}/image`,
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                updateImageUI(response.url, response.image_width);
+                $('#markdownPreview').html(response.preview_html);
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON?.error || 'Failed to upload image'));
             },
             complete: function() {
-                btn.prop('disabled', false).text('Extract Recipe');
+                $('#recipeImageInput').val('');
             }
         });
     });
 
-    // Confirm import
-    $('#confirmImportBtn').click(function() {
-        const btn = $(this);
-        btn.prop('disabled', true).text('Saving...');
+    // Resize the image
+    $('#recipeImageWidth').on('change', function() {
+        if (!currentRecipe) return;
+        const width = parseInt($(this).val(), 10);
+        if (!width) return;
 
-        $.post('/import/confirm', function(response) {
-            $('#importStatus')
-                .removeClass('alert-danger')
-                .addClass('alert-success')
-                .text('Recipe saved to pending! Switching to Edit tab...')
-                .show();
-
-            $('#recipeUrl').val('');
-            $('#recipeText').val('');
-            $('#importPreview').hide();
-
-            loadRecipes();
-
-            // Switch to Edit tab and Pending recipes
-            setTimeout(function() {
-                $('#edit-tab').tab('show');
-                $('#pending-recipes-tab').tab('show');
-            }, 1000);
-        }).fail(function(xhr) {
-            $('#importStatus')
-                .removeClass('alert-success')
-                .addClass('alert-danger')
-                .text('Error: ' + (xhr.responseJSON?.error || 'Failed to save recipe'))
-                .show();
-        }).always(function() {
-            btn.prop('disabled', false).text('Save to Pending Recipes');
+        $.ajax({
+            url: `/editor/recipe/${currentRecipe.status}/${currentRecipe.slug}/image/width`,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ width: width }),
+            success: function(response) {
+                $('#recipeImageWidth').val(response.width);
+                $('#markdownPreview').html(response.preview_html);
+                hasUnsavedChanges = true;
+                setSaveButtonState(true);
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON?.error || 'Failed to resize image'));
+            }
         });
     });
 
-    // Warn before switching tabs with unsaved changes
-    $('#import-tab').click(function(e) {
-        if (hasUnsavedChanges) {
-            if (!confirm('You have unsaved changes in the editor. Are you sure you want to switch tabs?')) {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-        }
-    });
+    // If we arrived from the Import Recipe page (?tab=pending), switch to the Pending sub-tab
+    if (new URLSearchParams(location.search).get('tab') === 'pending') {
+        $('#pending-recipes-tab').tab('show');
+    }
 
     // Initial load
     loadRecipes();

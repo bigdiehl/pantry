@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+
+{% block title %}Interactive Shopping List Demo{% endblock %}
+
+{% block content %}
+<style>
+    .demo-banner {
+        background-color: #ffc107;
+        color: #000;
+        padding: 12px;
+        text-align: center;
+        font-weight: bold;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+
+    .shopping-container {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .shopping-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .shopping-header h2 {
+        margin: 0;
+    }
+
+
+    .add-item-form {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .add-item-form input {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    .category-section {
+        margin-bottom: 30px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .category-header {
+        background-color: #f8f9fa;
+        padding: 12px 15px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: bold;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .category-header:hover {
+        background-color: #e9ecef;
+    }
+
+    .category-count {
+        font-size: 0.9em;
+        color: #666;
+        font-weight: normal;
+    }
+
+    .category-items {
+        padding: 10px;
+    }
+
+    .category-items.collapsed {
+        display: none;
+    }
+
+    .shopping-item {
+        display: flex;
+        align-items: center;
+        padding: 8px 10px;
+        border-bottom: 1px solid #f0f0f0;
+        gap: 10px;
+    }
+
+    .shopping-item:last-child {
+        border-bottom: none;
+    }
+
+    .shopping-item.checked {
+        opacity: 0.5;
+    }
+
+    .shopping-item.checked .item-text {
+        text-decoration: line-through;
+    }
+
+    .item-checkbox {
+        width: 24px;
+        height: 24px;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .item-text {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .item-quantity {
+        color: #666;
+        margin-left: 8px;
+    }
+
+    .item-remove {
+        background: none;
+        border: none;
+        color: #dc3545;
+        cursor: pointer;
+        padding: 5px 10px;
+        font-size: 18px;
+    }
+
+    .item-remove:hover {
+        color: #c82333;
+    }
+
+    .stats {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-around;
+        text-align: center;
+    }
+
+    .stat-item {
+        flex: 1;
+    }
+
+    .stat-number {
+        font-size: 24px;
+        font-weight: bold;
+        color: #007bff;
+    }
+
+    .stat-label {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+    }
+
+    .custom-items-section {
+        background-color: #fff3cd;
+        padding: 10px;
+        border-radius: 8px;
+        margin-top: 10px;
+    }
+
+    .custom-items-section .shopping-item {
+        background-color: white;
+        border-radius: 4px;
+        margin-bottom: 5px;
+        border: 1px solid #ffc107;
+    }
+
+    @media (max-width: 600px) {
+        .shopping-container {
+            padding: 10px;
+        }
+    }
+</style>
+
+<div class="shopping-container">
+    <div class="demo-banner">
+        DEMO MODE - Interactive Shopping List Prototype
+    </div>
+
+    <div class="shopping-header">
+        <h2>Shopping List</h2>
+        <div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="resetDemo()">Reset Demo</button>
+        </div>
+    </div>
+
+    <div class="stats">
+        <div class="stat-item">
+            <div class="stat-number" id="total-items">0</div>
+            <div class="stat-label">Total Items</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number" id="checked-items">0</div>
+            <div class="stat-label">Checked Off</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number" id="remaining-items">0</div>
+            <div class="stat-label">Remaining</div>
+        </div>
+    </div>
+
+    <div class="add-item-form">
+        <input type="text" id="new-item-name" placeholder="Add item (e.g., milk, bread)...">
+        <input type="text" id="new-item-quantity" placeholder="Quantity">
+        <button class="btn btn-primary" onclick="addCustomItem()">Add</button>
+    </div>
+
+    <div id="shopping-list">
+        <!-- Shopping list will be dynamically populated -->
+    </div>
+
+    <div class="mt-4 p-3 bg-light rounded">
+        <h5>Demo Features</h5>
+        <ul>
+            <li>Check off items as you shop</li>
+            <li>Add custom items on the fly</li>
+            <li>Remove items you don't need</li>
+            <li>Tap category header to collapse/expand</li>
+            <li>Progress tracking (total, checked, remaining)</li>
+            <li>Works offline with localStorage</li>
+            <li>Compact mobile-optimized layout</li>
+        </ul>
+        <p class="mb-0"><strong>Note:</strong> Prototype with demo data stored locally in your browser.</p>
+    </div>
+</div>
+
+<script>
+// Demo data - in production this would come from the actual shopping list API
+const DEMO_DATA = {
+    "DAIRY": [
+        { name: "Milk", quantity: "1 gallon" },
+        { name: "Butter", quantity: "2 sticks" },
+        { name: "Cheese", quantity: "8 oz" }
+    ],
+    "MEAT": [
+        { name: "Chicken Breast", quantity: "2 lbs" },
+        { name: "Ground Beef", quantity: "1 lb" }
+    ],
+    "VEGETABLE": [
+        { name: "Onions", quantity: "2" },
+        { name: "Bell Peppers", quantity: "3" },
+        { name: "Garlic", quantity: "1 bulb" }
+    ],
+    "FRUIT": [
+        { name: "Apples", quantity: "5" },
+        { name: "Bananas", quantity: "1 bunch" }
+    ],
+    "BAKING": [
+        { name: "Flour", quantity: "2 cups" },
+        { name: "Sugar", quantity: "1 cup" }
+    ],
+    "OTHER": [
+        { name: "Pasta", quantity: "1 lb" },
+        { name: "Rice", quantity: "2 cups" }
+    ]
+};
+
+let shoppingList = {};
+const STORAGE_KEY = 'shopping_list_demo';
+
+// Initialize shopping list from localStorage or demo data
+function initShoppingList() {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+        shoppingList = JSON.parse(stored);
+    } else {
+        // Deep copy demo data
+        shoppingList = JSON.parse(JSON.stringify(DEMO_DATA));
+        // Initialize checked state for all items
+        for (let category in shoppingList) {
+            shoppingList[category] = shoppingList[category].map(item => ({
+                ...item,
+                checked: false,
+                custom: false
+            }));
+        }
+        saveShoppingList();
+    }
+}
+
+// Save shopping list to localStorage
+function saveShoppingList() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(shoppingList));
+}
+
+// Render the shopping list
+function renderShoppingList() {
+    const container = document.getElementById('shopping-list');
+    container.innerHTML = '';
+
+    let totalItems = 0;
+    let checkedItems = 0;
+
+    // Render regular categories
+    for (let category in shoppingList) {
+        if (category === 'CUSTOM') continue; // Handle custom items separately
+
+        const items = shoppingList[category];
+        if (items.length === 0) continue;
+
+        totalItems += items.length;
+        checkedItems += items.filter(item => item.checked).length;
+
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'category-section';
+
+        const uncheckedCount = items.filter(item => !item.checked).length;
+        const categoryHeader = `
+            <div class="category-header" onclick="toggleCategory('${category}')">
+                <span>${category}</span>
+                <span class="category-count">${uncheckedCount}/${items.length}</span>
+            </div>
+        `;
+
+        const itemsHtml = items.map((item, index) => `
+            <div class="shopping-item ${item.checked ? 'checked' : ''}">
+                <input type="checkbox" class="item-checkbox"
+                       ${item.checked ? 'checked' : ''}
+                       onchange="toggleItem('${category}', ${index})">
+                <span class="item-text">
+                    ${item.name}${item.quantity ? `<span class="item-quantity">(${item.quantity})</span>` : ''}
+                </span>
+                <button class="item-remove" onclick="removeItem('${category}', ${index})" title="Remove item">×</button>
+            </div>
+        `).join('');
+
+        categoryDiv.innerHTML = categoryHeader + `<div class="category-items" id="category-${category}">${itemsHtml}</div>`;
+        container.appendChild(categoryDiv);
+    }
+
+    // Render custom items section
+    if (shoppingList.CUSTOM && shoppingList.CUSTOM.length > 0) {
+        const customDiv = document.createElement('div');
+        customDiv.className = 'custom-items-section';
+
+        const customItems = shoppingList.CUSTOM;
+        totalItems += customItems.length;
+        checkedItems += customItems.filter(item => item.checked).length;
+
+        const customHeader = `
+            <div style="font-weight: bold; margin-bottom: 10px; color: #856404;">
+                Custom Items (${customItems.filter(item => !item.checked).length}/${customItems.length})
+            </div>
+        `;
+
+        const customItemsHtml = customItems.map((item, index) => `
+            <div class="shopping-item ${item.checked ? 'checked' : ''}">
+                <input type="checkbox" class="item-checkbox"
+                       ${item.checked ? 'checked' : ''}
+                       onchange="toggleItem('CUSTOM', ${index})">
+                <span class="item-text">
+                    ${item.name}${item.quantity ? `<span class="item-quantity">(${item.quantity})</span>` : ''}
+                </span>
+                <button class="item-remove" onclick="removeItem('CUSTOM', ${index})" title="Remove item">×</button>
+            </div>
+        `).join('');
+
+        customDiv.innerHTML = customHeader + customItemsHtml;
+        container.appendChild(customDiv);
+    }
+
+    // Update stats
+    document.getElementById('total-items').textContent = totalItems;
+    document.getElementById('checked-items').textContent = checkedItems;
+    document.getElementById('remaining-items').textContent = totalItems - checkedItems;
+}
+
+// Toggle item checked state
+function toggleItem(category, index) {
+    shoppingList[category][index].checked = !shoppingList[category][index].checked;
+    saveShoppingList();
+    renderShoppingList();
+}
+
+// Remove item
+function removeItem(category, index) {
+    if (confirm('Remove this item from the list?')) {
+        shoppingList[category].splice(index, 1);
+        saveShoppingList();
+        renderShoppingList();
+    }
+}
+
+// Add custom item
+function addCustomItem() {
+    const nameInput = document.getElementById('new-item-name');
+    const quantityInput = document.getElementById('new-item-quantity');
+
+    const name = nameInput.value.trim();
+    if (!name) {
+        alert('Please enter an item name');
+        return;
+    }
+
+    if (!shoppingList.CUSTOM) {
+        shoppingList.CUSTOM = [];
+    }
+
+    shoppingList.CUSTOM.push({
+        name: name,
+        quantity: quantityInput.value.trim(),
+        checked: false,
+        custom: true
+    });
+
+    saveShoppingList();
+    renderShoppingList();
+
+    // Clear inputs
+    nameInput.value = '';
+    quantityInput.value = '';
+    nameInput.focus();
+}
+
+// Toggle category expansion
+function toggleCategory(category) {
+    const categoryItems = document.getElementById(`category-${category}`);
+    categoryItems.classList.toggle('collapsed');
+}
+
+// Reset to demo data
+function resetDemo() {
+    if (confirm('Reset to demo data? This will clear any changes you made.')) {
+        localStorage.removeItem(STORAGE_KEY);
+        initShoppingList();
+        renderShoppingList();
+    }
+}
+
+// Handle Enter key in add item form
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('new-item-name').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addCustomItem();
+        }
+    });
+
+    document.getElementById('new-item-quantity').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addCustomItem();
+        }
+    });
+});
+
+// Initialize on page load
+initShoppingList();
+renderShoppingList();
+</script>
+
+{% endblock %}

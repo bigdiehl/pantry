@@ -1,121 +1,357 @@
 {% extends "base.html" %}
 
-{% block title %}Landing Page{% endblock %}
+{% block title %}Shopping List{% endblock %}
 
 {% block content %}
+<style>
+    .shopping-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
 
-<div class="shopping-list-centered-container">
-    <div class="container-fluid ms-0 px-0 mt-4 mb-3" id="recipeList">
-        <h2>Selected Recipes</h2>
-        <div class="list-group mt-3 py-2 px-2 border" style="max-height: 25vh; overflow-y: auto;">
+    .shopping-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .shopping-header h2 {
+        margin: 0;
+    }
+
+    .recipe-item {
+        padding: 6px 8px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .recipe-item:last-child {
+        border-bottom: none;
+    }
+
+    /* Two rows always (not just on narrow screens): the ingredient name gets
+       its own full-width line, quantity + Add share the line below. Flex
+       items default to min-width:auto (their content size), which is what
+       let this form push the page wider than the viewport before - the
+       explicit min-width:0 below is what actually fixes that. */
+    .add-item-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .add-item-form input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    .add-item-form-row2 {
+        display: flex;
+        gap: 10px;
+    }
+
+    .add-item-form-row2 input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .add-item-form-row2 button {
+        flex: none;
+    }
+
+    .list-section-title {
+        margin-bottom: 10px;
+    }
+
+    .shopping-table-wrap {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+        overflow-x: auto;
+        margin-bottom: 30px;
+    }
+
+    table.shopping-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .shopping-table th,
+    .shopping-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .shopping-table th {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+        white-space: nowrap;
+    }
+
+    .shopping-table th.sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .shopping-table th.sortable:hover {
+        background-color: #e9ecef;
+    }
+
+    .sort-arrow {
+        color: #007bff;
+        margin-left: 4px;
+    }
+
+    .shopping-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .shopping-table tr.checked {
+        opacity: 0.5;
+    }
+
+    .shopping-table tr.checked .item-text {
+        text-decoration: line-through;
+    }
+
+    .item-checkbox {
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+    }
+
+    .category-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        background-color: #e9ecef;
+        font-size: 0.85em;
+        font-weight: 500;
+    }
+
+    .item-remove {
+        background: none;
+        border: none;
+        color: #dc3545;
+        cursor: pointer;
+        padding: 2px 8px;
+        font-size: 18px;
+    }
+
+    .item-remove:hover {
+        color: #c82333;
+    }
+
+    .col-check {
+        width: 40px;
+    }
+
+    .col-remove {
+        width: 40px;
+        text-align: center;
+    }
+
+    .empty-state td {
+        text-align: center;
+        color: #666;
+        padding: 20px;
+    }
+
+    /* Main List / Likely to Have rows open the ingredient detail popup when
+       clicked anywhere except the checkbox or remove button. */
+    .item-text.clickable {
+        cursor: pointer;
+    }
+
+    .item-text.clickable:hover {
+        text-decoration: underline;
+        text-decoration-style: dotted;
+    }
+
+    #ingredientDetailSources {
+        padding-left: 1.2rem;
+    }
+
+    /*
+     * Mobile-only "swipe to delete" row. Rendered instead of the plain
+     * checkbox/name/category/qty/remove row when the viewport is narrow
+     * (see isMobile() in the script below). The row's content sits in a
+     * horizontally-scrollable strip with the delete button snapped just
+     * off-screen to the right; swiping left scrolls it into view.
+     */
+    .swipe-cell {
+        padding: 0 !important;
+    }
+
+    .swipe-row {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .swipe-row::-webkit-scrollbar {
+        display: none;
+    }
+
+    .swipe-content {
+        flex: none;
+        width: 100%;
+        scroll-snap-align: start;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        background: #fff;
+    }
+
+    .swipe-content .item-qty {
+        color: #666;
+        font-size: 0.85em;
+        white-space: nowrap;
+    }
+
+    .swipe-delete {
+        flex: none;
+        width: 90px;
+        scroll-snap-align: start;
+        border: none;
+        background-color: #dc3545;
+        color: #fff;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+    }
+
+    @media (max-width: 600px) {
+        .shopping-container {
+            padding: 10px;
+        }
+    }
+</style>
+
+<div class="shopping-container">
+    <div class="shopping-header">
+        <h2>Shopping List</h2>
+    </div>
+
+    <h5 class="mb-2">Add Ingredients</h5>
+    <div class="add-item-form">
+        <input type="text" id="new-item-name" placeholder="Add item (e.g., milk, bread)...">
+        <div class="add-item-form-row2">
+            <input type="text" id="new-item-quantity" placeholder="Quantity">
+            <button class="btn btn-primary" onclick="addCustomItem()">Add</button>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <h5 class="mb-2">Selected Recipes</h5>
+        <div class="list-group py-2 px-2 border" style="max-height: 20vh; overflow-y: auto;">
             {% if recipes %}
                 {% for recipe in recipes %}
-                <div class="recipe-item d-flex align-items-center justify-content-between" data-recipename="{{ recipe.name }}">
+                <div class="recipe-item d-flex align-items-center justify-content-between" data-slug="{{ recipe.slug }}">
                     <span>{{ recipe.name }}</span>
                     <button
                         type="button"
                         class="btn btn-danger btn-sm remove-recipe"
                         data-id="{{ recipe.slug }}"
-                        data-bs-toggle="tooltip"
-                        data-bs-placement="top"
                         title="Remove this recipe">
-                            -
+                            &minus;
                     </button>
                 </div>
                 {% endfor %}
             {% else %}
-                <div class="p-3 text-muted">
-                    <em>No recipes selected. Go to the Recipes page to add some!</em>
+                <div class="p-2 text-muted">
+                    <em>No recipes selected. Go to the Recipes page to add some.</em>
                 </div>
             {% endif %}
         </div>
     </div>
 
-    <div class="mb-3">
-        <div class="input-group flex-column flex-sm-row">
-            <button id="emailListBtn" class="btn btn-primary mb-2 mb-sm-0">
-                Email List To
-            </button>
-            <input
-                type="email"
-                id="emailAddress"
-                class="form-control"
-                placeholder="Enter email"
-                value="{{ user_email or 'katrina@higham.com; docdiehl@gmail.com' }}">
-        </div>
+    <div class="mb-3 d-flex align-items-center gap-2 flex-wrap" id="vendorFilterBar" style="display: none;">
+        <label for="vendorFilter" class="mb-0 fw-bold">Filter by vendor:</label>
+        <select id="vendorFilter" class="form-select form-select-sm" style="width: auto;">
+            <option value="">All Vendors</option>
+        </select>
     </div>
-</div>
 
-<div class="markdown-content shopping-list-content" id="markdownContent">
-    {{ shopping_list_html|safe }}
-</div>
+    <h5 class="list-section-title">My Items</h5>
+    <div class="shopping-table-wrap">
+        <table class="shopping-table">
+            <thead>
+                <tr>
+                    <th class="col-check"></th>
+                    <th class="sortable" onclick="setSort('custom', 'name')">Name<span class="sort-arrow" id="arrow-custom-name"></span></th>
+                    <th>Quantity</th>
+                    <th class="col-remove"></th>
+                </tr>
+            </thead>
+            <tbody id="shopping-list-custom">
+                <!-- Manually added rows will be dynamically populated -->
+            </tbody>
+        </table>
+    </div>
 
-<div class="text-center mt-4 mb-4 shopping-list-content">
-    <button id="printListBtn" class="btn btn-primary no-print">
-        Download as PDF
-    </button>
-</div>
+    <h5 class="list-section-title">Main List</h5>
+    <div class="shopping-table-wrap">
+        <table class="shopping-table">
+            <thead>
+                <tr>
+                    <th class="col-check"></th>
+                    <th class="sortable" onclick="setSort('main', 'name')">Name<span class="sort-arrow" id="arrow-main-name"></span></th>
+                    <th class="sortable" onclick="setSort('main', 'category')">Category<span class="sort-arrow" id="arrow-main-category"></span></th>
+                    <th>Quantity</th>
+                    <th class="col-remove"></th>
+                </tr>
+            </thead>
+            <tbody id="shopping-list-main">
+                <!-- Main list rows will be dynamically populated -->
+            </tbody>
+        </table>
+    </div>
 
-<!-- Weekly Email Schedule Configuration -->
-<div class="shopping-list-content mt-5 mb-5">
-    <div class="card">
-        <div class="card-header">
-            <h4 class="mb-0">Weekly Email Schedule</h4>
-        </div>
-        <div class="card-body">
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="scheduleEnabled">
-                        <label class="form-check-label" for="scheduleEnabled">
-                            <strong>Enable Automatic Weekly Emails</strong>
-                        </label>
-                    </div>
+    <h5 class="list-section-title">Likely to Already Have</h5>
+    <div class="shopping-table-wrap">
+        <table class="shopping-table">
+            <thead>
+                <tr>
+                    <th class="col-check"></th>
+                    <th class="sortable" onclick="setSort('secondary', 'name')">Name<span class="sort-arrow" id="arrow-secondary-name"></span></th>
+                    <th class="sortable" onclick="setSort('secondary', 'category')">Category<span class="sort-arrow" id="arrow-secondary-category"></span></th>
+                    <th>Quantity</th>
+                    <th class="col-remove"></th>
+                </tr>
+            </thead>
+            <tbody id="shopping-list-secondary">
+                <!-- 'Likely to have' rows will be dynamically populated -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Ingredient detail popup: which recipes it came from + preferred vendor -->
+    <div class="modal fade" id="ingredientDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ingredientDetailName"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-            </div>
-
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <label for="numRecipes" class="form-label">Number of Recipes</label>
-                    <input type="number" class="form-control" id="numRecipes" min="1" max="20" value="3">
-                </div>
-                <div class="col-md-4">
-                    <label for="dayOfWeek" class="form-label">Day of Week</label>
-                    <select class="form-select" id="dayOfWeek">
-                        <option value="0">Monday</option>
-                        <option value="1">Tuesday</option>
-                        <option value="2">Wednesday</option>
-                        <option value="3">Thursday</option>
-                        <option value="4">Friday</option>
-                        <option value="5">Saturday</option>
-                        <option value="6">Sunday</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label for="sendTime" class="form-label">Send Time</label>
-                    <input type="time" class="form-control" id="sendTime" value="09:00">
-                </div>
-            </div>
-
-            <div class="row mb-3">
-                <div class="col-md-12">
-                    <label for="scheduleRecipients" class="form-label">Email Recipients (comma or semicolon separated)</label>
-                    <input type="text" class="form-control" id="scheduleRecipients" placeholder="email1@example.com, email2@example.com">
-                </div>
-            </div>
-
-            <div class="row mb-3">
-                <div class="col-md-12">
-                    <button id="saveScheduleBtn" class="btn btn-primary me-2">Save Schedule</button>
-                    <button id="sendNowBtn" class="btn btn-secondary">Send Now (Test)</button>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-12">
-                    <div id="scheduleStatus" class="alert" style="display: none;"></div>
-                    <div id="nextSendInfo" class="text-muted" style="display: none;">
-                        <strong>Next scheduled send:</strong> <span id="nextSendDate"></span>
+                <div class="modal-body">
+                    <p class="mb-2"><strong>Quantity:</strong> <span id="ingredientDetailQty"></span></p>
+                    <p class="mb-3" id="ingredientDetailVendorWrap" style="display: none;">
+                        <strong>Preferred vendor:</strong> <span id="ingredientDetailVendor"></span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="ingredientDetailVendorFilterBtn">View all from this vendor</button>
+                    </p>
+                    <div>
+                        <strong>From recipes:</strong>
+                        <ul id="ingredientDetailSources" class="mb-0"></ul>
                     </div>
                 </div>
             </div>
@@ -123,96 +359,403 @@
     </div>
 </div>
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-<script src="{{ url_for('static', filename='scripts/shopping_list.js') }}"></script>
 <script>
-    document.getElementById('printListBtn').addEventListener('click', function() {
-        window.location.href = '/download_shopping_list_pdf';
-    });
+// Ingredients merged from the currently selected recipes, split like the
+// real Shopping List page into 'main' (things to buy) and 'secondary'
+// (likely already have), each grouped by category:
+// { main: { "Dairy": [{ name, quantity }, ...], ... }, secondary: { ... } }
+const SERVER_ITEMS = {{ shopping_items | tojson }};
 
-    // Load schedule configuration on page load
-    function loadScheduleConfig() {
-        $.get('/schedule/config', function(response) {
-            if (response.success) {
-                const config = response.config;
-                $('#scheduleEnabled').prop('checked', config.enabled);
-                $('#numRecipes').val(config.num_recipes);
-                $('#dayOfWeek').val(config.day_of_week);
-                $('#sendTime').val(config.send_time);
-                $('#scheduleRecipients').val(config.recipients);
+const STORAGE_KEY = 'shopping_list_table_state';
 
-                if (response.next_send) {
-                    $('#nextSendDate').text(response.next_send);
-                    $('#nextSendInfo').show();
-                } else {
-                    $('#nextSendInfo').hide();
-                }
-            }
+// Client-side-only state layered on top of the server-generated ingredient
+// lists: which rows are checked off, which have been dismissed from view,
+// and any manually added extra items (shown in their own 'My Items' section).
+// Identified by "CATEGORY::name" for real ingredients, and by index for
+// custom items.
+let checkedKeys = new Set();
+let dismissedKeys = new Set();
+let customItems = [];
+
+// Selected vendor filter ('' = all vendors). Only applies to the
+// recipe-derived main/secondary sections - custom items have no vendor.
+let vendorFilter = '';
+
+// rowId -> {name, quantity, vendor, sources} for the currently-rendered
+// main/secondary rows, so the detail popup can look up what was clicked.
+let itemIndex = {};
+
+// Independent sort state per section. 'custom' has no category column, so it
+// only ever sorts by name.
+const sortState = {
+    main: { field: 'category', dir: 'asc' },
+    secondary: { field: 'category', dir: 'asc' },
+    custom: { field: 'name', dir: 'asc' }
+};
+
+// Which sections show a category column/badge — the recipe-derived sections
+// do, the manually-added 'custom' section doesn't (items have no category).
+const SHOW_CATEGORY = {
+    main: true,
+    secondary: true,
+    custom: false
+};
+
+const EMPTY_MESSAGES = {
+    main: 'No ingredients yet. Select some recipes to build a shopping list, or add an item above.',
+    secondary: 'Nothing here yet — items your recipes call for that you likely already have will show up here.',
+    custom: 'No items added yet. Use the form above to add something not covered by your recipes.'
+};
+
+function rowKey(category, name) {
+    return `${category}::${name}`;
+}
+
+// Below this width, rows render with a swipe-to-delete gesture instead of an
+// always-visible remove button (see renderRow()).
+const MOBILE_QUERY = window.matchMedia('(max-width: 600px)');
+function isMobile() {
+    return MOBILE_QUERY.matches;
+}
+
+// Load checked/dismissed/custom state from localStorage
+function loadState() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (stored) {
+            checkedKeys = new Set(stored.checked || []);
+            dismissedKeys = new Set(stored.dismissed || []);
+            customItems = stored.custom || [];
+        }
+    } catch (e) {
+        // Ignore corrupt/missing storage and start fresh
+    }
+}
+
+// Save checked/dismissed/custom state to localStorage
+function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        checked: Array.from(checkedKeys),
+        dismissed: Array.from(dismissedKeys),
+        custom: customItems
+    }));
+}
+
+// Flatten one section into an array of rows for its table. 'main' and
+// 'secondary' come from the server-generated ingredient lists (minus
+// dismissed rows); 'custom' is the manually-added items, kept in their own
+// list separate from the recipe-derived ones.
+function getFlatItems(section) {
+    if (section === 'custom') {
+        return customItems.map((item, index) => ({
+            name: item.name,
+            quantity: item.quantity,
+            checked: !!item.checked,
+            rowId: `custom-${index}`
+        }));
+    }
+
+    const flat = [];
+    const groups = SERVER_ITEMS[section] || {};
+
+    for (const category in groups) {
+        groups[category].forEach(item => {
+            const key = rowKey(category, item.name);
+            if (dismissedKeys.has(key)) return;
+            if (vendorFilter && (item.vendor || '') !== vendorFilter) return;
+            itemIndex[key] = item;
+            flat.push({
+                name: item.name,
+                quantity: item.quantity,
+                category: category,
+                checked: checkedKeys.has(key),
+                rowId: key
+            });
         });
     }
 
-    // Save schedule configuration
-    $('#saveScheduleBtn').click(function() {
-        const config = {
-            enabled: $('#scheduleEnabled').is(':checked'),
-            num_recipes: parseInt($('#numRecipes').val()),
-            day_of_week: parseInt($('#dayOfWeek').val()),
-            send_time: $('#sendTime').val(),
-            recipients: $('#scheduleRecipients').val()
+    return flat;
+}
+
+// Render a single ingredient row. On mobile, use a swipe-to-delete strip
+// instead of an always-visible remove button, to save space on narrow screens.
+// showCategory controls whether the category column/badge is included (off
+// for the 'custom' section, whose items have no category).
+function renderRow(item, showCategory, clickable) {
+    const checkedClass = item.checked ? 'checked' : '';
+    const checkboxAttr = item.checked ? 'checked' : '';
+    const categoryBadge = `<span class="category-badge">${item.category}</span>`;
+    const nameAttrs = clickable ? ` class="item-text clickable" onclick="showIngredientDetail('${item.rowId}')"` : ' class="item-text"';
+
+    if (isMobile()) {
+        return `
+            <tr class="${checkedClass}">
+                <td class="swipe-cell" colspan="${showCategory ? 5 : 4}">
+                    <div class="swipe-row">
+                        <div class="swipe-content">
+                            <input type="checkbox" class="item-checkbox"
+                                   ${checkboxAttr}
+                                   onchange="toggleItem('${item.rowId}')">
+                            <span${nameAttrs}>${item.name}</span>
+                            ${showCategory ? categoryBadge : ''}
+                            <span class="item-qty">${item.quantity || ''}</span>
+                        </div>
+                        <button class="swipe-delete" onclick="removeItem('${item.rowId}')">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    return `
+        <tr class="${checkedClass}">
+            <td class="col-check">
+                <input type="checkbox" class="item-checkbox"
+                       ${checkboxAttr}
+                       onchange="toggleItem('${item.rowId}')">
+            </td>
+            <td><span${nameAttrs}>${item.name}</span></td>
+            ${showCategory ? `<td>${categoryBadge}</td>` : ''}
+            <td>${item.quantity || ''}</td>
+            <td class="col-remove">
+                <button class="item-remove" onclick="removeItem('${item.rowId}')" title="Remove item">×</button>
+            </td>
+        </tr>
+    `;
+}
+
+// Update the sort-arrow indicators in one section's column headers. The
+// 'custom' section has no category column/arrow, hence the null check.
+function updateSortArrows(section) {
+    const state = sortState[section];
+    document.getElementById(`arrow-${section}-name`).textContent = state.field === 'name' ? (state.dir === 'asc' ? '▲' : '▼') : '';
+    const categoryArrow = document.getElementById(`arrow-${section}-category`);
+    if (categoryArrow) {
+        categoryArrow.textContent = state.field === 'category' ? (state.dir === 'asc' ? '▲' : '▼') : '';
+    }
+}
+
+// Set a section's sort field, toggling direction if the same field is clicked again
+function setSort(section, field) {
+    const state = sortState[section];
+    if (state.field === field) {
+        state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        state.field = field;
+        state.dir = 'asc';
+    }
+    renderAll();
+}
+
+// Render one section's table
+function renderSection(section) {
+    const tbody = document.getElementById(`shopping-list-${section}`);
+    const state = sortState[section];
+    const showCategory = SHOW_CATEGORY[section];
+    const clickable = section !== 'custom';
+
+    const flat = getFlatItems(section);
+
+    flat.sort((a, b) => {
+        const aPrimary = (state.field === 'name' ? a.name : a.category).toLowerCase();
+        const bPrimary = (state.field === 'name' ? b.name : b.category).toLowerCase();
+        let cmp = aPrimary.localeCompare(bPrimary);
+        if (cmp === 0) {
+            // Stable secondary sort by name so ties order consistently
+            cmp = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        }
+        return state.dir === 'asc' ? cmp : -cmp;
+    });
+
+    if (flat.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-state">
+                <td colspan="${showCategory ? 5 : 4}">${EMPTY_MESSAGES[section]}</td>
+            </tr>
+        `;
+    } else {
+        tbody.innerHTML = flat.map(item => renderRow(item, showCategory, clickable)).join('');
+    }
+
+    updateSortArrows(section);
+}
+
+// Render all three sections
+function renderAll() {
+    itemIndex = {};
+    renderSection('main');
+    renderSection('secondary');
+    renderSection('custom');
+}
+
+// Distinct vendors across the main/secondary ingredients, for the vendor
+// filter dropdown. Only shown at all when at least one item has a vendor set.
+function initVendorFilter() {
+    const vendors = new Set();
+    for (const section of ['main', 'secondary']) {
+        const groups = SERVER_ITEMS[section] || {};
+        for (const category in groups) {
+            groups[category].forEach(item => {
+                if (item.vendor) vendors.add(item.vendor);
+            });
+        }
+    }
+
+    if (vendors.size === 0) return;
+
+    const sorted = Array.from(vendors).sort();
+    const select = document.getElementById('vendorFilter');
+    sorted.forEach(vendor => {
+        const option = document.createElement('option');
+        option.value = vendor;
+        option.textContent = vendor;
+        select.appendChild(option);
+    });
+
+    document.getElementById('vendorFilterBar').style.display = '';
+    select.addEventListener('change', function() {
+        vendorFilter = this.value;
+        renderAll();
+    });
+}
+
+// Populate and show the ingredient detail modal for a main/secondary row
+function showIngredientDetail(rowId) {
+    const item = itemIndex[rowId];
+    if (!item) return;
+
+    document.getElementById('ingredientDetailName').textContent = item.name;
+    document.getElementById('ingredientDetailQty').textContent = item.quantity || '(no quantity specified)';
+
+    const vendorWrap = document.getElementById('ingredientDetailVendorWrap');
+    if (item.vendor) {
+        document.getElementById('ingredientDetailVendor').textContent = item.vendor;
+        document.getElementById('ingredientDetailVendorFilterBtn').onclick = function() {
+            const select = document.getElementById('vendorFilter');
+            select.value = item.vendor;
+            vendorFilter = item.vendor;
+            renderAll();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('ingredientDetailModal')).hide();
         };
+        vendorWrap.style.display = '';
+    } else {
+        vendorWrap.style.display = 'none';
+    }
 
-        $.ajax({
-            url: '/schedule/config',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify(config),
-            success: function(response) {
-                $('#scheduleStatus')
-                    .removeClass('alert-danger')
-                    .addClass('alert-success')
-                    .text(response.message)
-                    .show();
-                loadScheduleConfig();
-                setTimeout(() => $('#scheduleStatus').fadeOut(), 3000);
-            },
-            error: function(xhr) {
-                const error = xhr.responseJSON?.error || 'Failed to save schedule';
-                $('#scheduleStatus')
-                    .removeClass('alert-success')
-                    .addClass('alert-danger')
-                    .text(error)
-                    .show();
-            }
-        });
+    const sourcesList = document.getElementById('ingredientDetailSources');
+    if (item.sources && item.sources.length > 0) {
+        sourcesList.innerHTML = item.sources.map(source =>
+            `<li><a href="/recipes_list?recipe=${encodeURIComponent(source.name)}" target="_blank" rel="noopener">${source.name}</a></li>`
+        ).join('');
+    } else {
+        sourcesList.innerHTML = '<li class="text-muted">No recipe on file (may have been added manually)</li>';
+    }
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('ingredientDetailModal')).show();
+}
+
+// Toggle an item's checked state
+function toggleItem(rowId) {
+    if (rowId.startsWith('custom-')) {
+        const index = parseInt(rowId.slice('custom-'.length), 10);
+        customItems[index].checked = !customItems[index].checked;
+    } else if (checkedKeys.has(rowId)) {
+        checkedKeys.delete(rowId);
+    } else {
+        checkedKeys.add(rowId);
+    }
+    saveState();
+    renderAll();
+}
+
+// Remove an item from view. Custom items are deleted outright; ingredients
+// pulled from recipes are just dismissed (they'll come back if you reset the
+// list or re-select the recipe).
+function removeItem(rowId) {
+    if (!confirm('Remove this item from the list?')) return;
+
+    if (rowId.startsWith('custom-')) {
+        const index = parseInt(rowId.slice('custom-'.length), 10);
+        customItems.splice(index, 1);
+    } else {
+        dismissedKeys.add(rowId);
+        checkedKeys.delete(rowId);
+    }
+    saveState();
+    renderAll();
+}
+
+// Add a manually-entered item to its own 'My Items' list, separate from the
+// recipe-derived Main List / Likely to Already Have sections
+function addCustomItem() {
+    const nameInput = document.getElementById('new-item-name');
+    const quantityInput = document.getElementById('new-item-quantity');
+
+    const name = nameInput.value.trim();
+    if (!name) {
+        alert('Please enter an item name');
+        return;
+    }
+
+    customItems.push({
+        name: name,
+        quantity: quantityInput.value.trim(),
+        checked: false
     });
 
-    // Send now (test)
-    $('#sendNowBtn').click(function() {
-        const btn = $(this);
-        const originalText = btn.text();
-        btn.prop('disabled', true).text('Sending...');
+    saveState();
+    renderAll();
 
-        $.post('/schedule/send_now', function(response) {
-            $('#scheduleStatus')
-                .removeClass('alert-danger')
-                .addClass('alert-success')
-                .text(response.message)
-                .show();
-            setTimeout(() => $('#scheduleStatus').fadeOut(), 3000);
-        }).fail(function(xhr) {
-            const error = xhr.responseJSON?.error || 'Failed to send email';
-            $('#scheduleStatus')
-                .removeClass('alert-success')
-                .addClass('alert-danger')
-                .text(error)
-                .show();
-        }).always(function() {
-            btn.prop('disabled', false).text(originalText);
+    // Clear inputs
+    nameInput.value = '';
+    quantityInput.value = '';
+    nameInput.focus();
+}
+
+// Remove a recipe from the selected list, then reload so the ingredient
+// tables regenerate from the new recipe selection.
+function bindRemoveRecipeButtons() {
+    document.querySelectorAll('.remove-recipe').forEach(button => {
+        button.addEventListener('click', function () {
+            const slug = this.dataset.id;
+            fetch(`/deselect/${slug}`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.reload();
+                    } else {
+                        alert('Remove failed.');
+                    }
+                })
+                .catch(() => alert('Remove failed.'));
         });
     });
+}
 
-    // Load config on page load
-    loadScheduleConfig();
+document.addEventListener('DOMContentLoaded', function() {
+    bindRemoveRecipeButtons();
+
+    document.getElementById('new-item-name').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addCustomItem();
+        }
+    });
+
+    document.getElementById('new-item-quantity').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addCustomItem();
+        }
+    });
+});
+
+// Re-render if the viewport crosses the mobile breakpoint, so rows switch
+// between the swipe-to-delete layout and the plain desktop layout live.
+MOBILE_QUERY.addEventListener('change', renderAll);
+
+// Initialize on page load
+loadState();
+initVendorFilter();
+renderAll();
 </script>
 
 {% endblock %}

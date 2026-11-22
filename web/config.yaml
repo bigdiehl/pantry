@@ -1,6 +1,10 @@
 app:
-  recipes_dir: ../data/recipes/saved
-  pending_dir: ../data/recipes/pending
+  # Recipe data lives in the separate diehl_recipes repo. Relative to web/.
+  # RECIPES_DATA_DIR env var overrides.
+  data_dir: ../../diehl_recipes
+  recipes_dir: recipes/saved
+  pending_dir: recipes/pending
+  archived_dir: recipes/archived
   state_file: instance/state.json
   output_dir: ../output
 

@@ -2,10 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     
     <title>{% block title %}My Flask Site{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+
+    <!-- Theme color for mobile browsers -->
+    <meta name="theme-color" content="#2c3e50">
+
+    <!-- iOS-specific PWA meta tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Recipes">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
 
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
@@ -14,17 +26,49 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Site CSS loads last so its overrides reliably beat Bootstrap's
+         same-specificity rules regardless of source order. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <!-- Offline indicator banner -->
+    <div id="offline-banner" style="display: none; background-color: #ff9800; color: white; padding: 8px; text-align: center; font-size: 14px;">
+        You are offline. Some features may be unavailable.
+    </div>
+
     <div class="container-fluid">
-        <header>
-            <h1 class="text-center py-3 site-title">The Diehl Menu</h1>
-            <nav class="navbar navbar-light bg-light py-2">
-                <div class="container d-flex justify-content-center">
-                    <div class="nav-buttons-container">
-                        <a class="btn btn-sm nav-btn {% if active_page == 'home' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('index') }}">Shopping List</a>
-                        <a class="btn btn-sm nav-btn {% if active_page == 'recipes_list' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('recipes_list') }}">Recipes</a>
-                        <a class="btn btn-sm nav-btn {% if active_page == 'editor' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('editor_page') }}">Editor</a>
+        <header class="bg-light navbar-light">
+            <!-- Title row: its own line, always - never affected by the nav below expanding/collapsing -->
+            <div class="container-fluid nav-container d-flex justify-content-between align-items-center pt-2">
+                <button class="navbar-toggler d-xl-none" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <span class="site-title mb-0 ms-auto">The Diehl Menu</span>
+            </div>
+
+            <!-- Nav row: a separate line below the title. Flat page links on desktop
+                 (enough room); collapses into one flat list under the toggler otherwise. -->
+            <nav class="navbar navbar-expand-xl navbar-light py-2">
+                <div class="container-fluid nav-container">
+                    <div class="collapse navbar-collapse" id="mainNav">
+                        <ul class="navbar-nav nav-buttons-container">
+                            <li class="nav-item">
+                                <a class="btn btn-sm nav-btn {% if active_page == 'home' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('index') }}">Shopping List</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="btn btn-sm nav-btn {% if active_page == 'recipes_list' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('recipes_list') }}">Recipes</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="btn btn-sm nav-btn {% if active_page == 'editor' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('editor_page') }}">Edit Recipes</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="btn btn-sm nav-btn {% if active_page == 'ingredients' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('ingredients_page') }}">Edit Ingredients</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="btn btn-sm nav-btn {% if active_page == 'import' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('import_page') }}">Import Recipe</a>
+                            </li>
+                        </ul>
                     </div>
                 </div>
             </nav>
@@ -37,5 +81,39 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+
+    <!-- PWA Service Worker Registration -->
+    <script>
+        // Register service worker for offline support
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then((registration) => {
+                        console.log('ServiceWorker registered:', registration.scope);
+                    })
+                    .catch((error) => {
+                        console.error('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
+
+        // Offline/online status indicator
+        const offlineBanner = document.getElementById('offline-banner');
+
+        function updateOnlineStatus() {
+            if (navigator.onLine) {
+                offlineBanner.style.display = 'none';
+            } else {
+                offlineBanner.style.display = 'block';
+            }
+        }
+
+        // Check initial status
+        updateOnlineStatus();
+
+        // Listen for status changes
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+    </script>
 </body>
 </html>

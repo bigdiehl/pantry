@@ -21,6 +21,11 @@
                     Pending
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="archived-tab" data-bs-toggle="tab" data-bs-target="#archived" type="button" role="tab">
+                    Archive
+                </button>
+            </li>
         </ul>
 
         <!-- Tab Content -->
@@ -28,6 +33,11 @@
 
         <!-- Saved Recipes Tab -->
         <div class="tab-pane fade show active" id="saved" role="tabpanel">
+            <!-- Search -->
+            <div class="mb-2">
+                <input type="text" id="recipeSearch" class="form-control form-control-sm" placeholder="Search recipes...">
+            </div>
+
             <!-- Grouping Toggle -->
             <div class="mb-2">
                 <div class="btn-group btn-group-sm w-100" role="group">
@@ -40,83 +50,26 @@
             </div>
 
             <!-- Recipes grouped by Category (default) -->
-            <div id="categoryGroups">
-                {% set groups = {} %}
-                {% for recipe in recipes %}
-                    {% set group = recipe.category or 'Other' %}
-                    {% if group not in groups %}
-                        {% set _ = groups.update({group: []}) %}
-                    {% endif %}
-                    {% set _ = groups[group].append(recipe) %}
-                {% endfor %}
-
-                {% for group_name in ['ENTREE', 'SALAD', 'SIDE', 'DESSERT', 'Other'] %}
-                    {% if group_name in groups %}
-                        <div class="recipe-group mb-3">
-                            <h5 class="text-muted">{{ group_name.title() }}</h5>
-                            <div class="list-group">
-                                {% for recipe in groups[group_name] %}
-                                <div class="recipe-item d-flex align-items-center justify-content-between" data-recipename="{{ recipe.name }}" data-category="{{ recipe.category }}" data-meal="{{ recipe.meal }}">
-                                    <span>{{ recipe.name }}</span>
-                                    <button
-                                        type="button"
-                                        class="btn {{ 'btn-primary' if recipe.selected else 'btn-success' }} btn-sm add-recipe"
-                                        data-id="{{ recipe.slug }}"
-                                        data-selected="{{ recipe.selected }}"
-                                        data-bs-toggle="tooltip"
-                                        data-bs-placement="top"
-                                        title="Add this recipe">
-                                            {{ '✔' if recipe.selected else '+' }}
-                                    </button>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
-                {% endfor %}
-            </div>
+            <div id="categoryGroups"></div>
 
             <!-- Recipes grouped by Meal (hidden by default) -->
-            <div id="mealGroups" style="display: none;">
-                {% set meal_groups = {} %}
-                {% for recipe in recipes %}
-                    {% set group = recipe.meal or 'Other' %}
-                    {% if group not in meal_groups %}
-                        {% set _ = meal_groups.update({group: []}) %}
-                    {% endif %}
-                    {% set _ = meal_groups[group].append(recipe) %}
-                {% endfor %}
-
-                {% for group_name in ['BREAKFAST', 'LUNCH', 'DINNER', 'Other'] %}
-                    {% if group_name in meal_groups %}
-                        <div class="recipe-group mb-3">
-                            <h5 class="text-muted">{{ group_name.title() }}</h5>
-                            <div class="list-group">
-                                {% for recipe in meal_groups[group_name] %}
-                                <div class="recipe-item d-flex align-items-center justify-content-between" data-recipename="{{ recipe.name }}" data-category="{{ recipe.category }}" data-meal="{{ recipe.meal }}">
-                                    <span>{{ recipe.name }}</span>
-                                    <button
-                                        type="button"
-                                        class="btn {{ 'btn-primary' if recipe.selected else 'btn-success' }} btn-sm add-recipe"
-                                        data-id="{{ recipe.slug }}"
-                                        data-selected="{{ recipe.selected }}"
-                                        data-bs-toggle="tooltip"
-                                        data-bs-placement="top"
-                                        title="Add this recipe">
-                                            {{ '✔' if recipe.selected else '+' }}
-                                    </button>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
-                {% endfor %}
-            </div>
+            <div id="mealGroups" style="display: none;"></div>
         </div>
+
+        <!-- Recipe data for JS-driven grouping (see recipe_grouping.js / recipes_list.js) -->
+        <script id="recipesData" type="application/json">{{ recipes | tojson }}</script>
+        <script id="archivedRecipesData" type="application/json">{{ archived_recipes | tojson }}</script>
 
         <!-- Pending Recipes Tab -->
         <div class="tab-pane fade" id="pending" role="tabpanel">
             <p class="text-muted"><em>Pending recipes will appear here once the import functionality is enabled.</em></p>
+        </div>
+
+        <!-- Archived Recipes Tab (read-only: archived recipes are out of shopping-list rotation) -->
+        <div class="tab-pane fade" id="archived" role="tabpanel">
+            <p class="text-muted"><em>Archived recipes are out of rotation and can't be added to the shopping list. Click one to view it.</em></p>
+            <div id="archivedCategoryGroups"></div>
+            <div id="archivedMealGroups" style="display: none;"></div>
         </div>
         </div>
     </div>
@@ -130,6 +83,7 @@
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="{{ url_for('static', filename='scripts/recipe_grouping.js') }}"></script>
 <script src="{{ url_for('static', filename='scripts/recipes_list.js') }}"></script>
 
 {% endblock %}

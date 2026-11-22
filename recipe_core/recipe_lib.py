@@ -123,6 +123,8 @@ class Food(BaseModel):
                         E.g. 1 tsp of flour is probably not worth adding to the list.
         likely_to_have: If True, the food is sorted into the secondary 'probably have
                         this already' section of the shopping list.
+        preferred_vendor: Where this food is usually bought (e.g. 'Walmart', 'Costco'),
+                        so the shopping list can be filtered/grouped by store.
     """
 
     names: List[str]
@@ -130,6 +132,7 @@ class Food(BaseModel):
     preferred_unit: Optional[str] = None
     min_amount: Optional[float] = None
     likely_to_have: bool = False
+    preferred_vendor: Optional[str] = None
 
     @field_validator("names", mode="before")
     @classmethod
@@ -283,6 +286,13 @@ class MergedIngredient:
 
         return " + ".join(parts) if parts else ""
     
+    def all_source_slugs(self) -> List[str]:
+        """Every recipe slug that contributed to this ingredient (deduped, sorted)."""
+        slugs = set(self.unspecified)
+        for group in self.quantities:
+            slugs.update(group.sources)
+        return sorted(slugs)
+
     def format_sources(self, recipe_slugs: List[str]):
         """Returns a formatted list of sources. 'recipe_slugs' is the slugs for the selected
         recipes. Used to number the sources."""

@@ -23,7 +23,9 @@ from recipe_core import units
 
 logger = logging.getLogger(__name__)
 
-RECIPES_DIR = os.path.join(os.path.dirname(__file__), '../data/recipes')
+RECIPES_DIR = os.path.join(
+    os.environ.get("RECIPES_DATA_DIR") or os.path.join(os.path.dirname(__file__), '../../diehl_recipes'),
+    'recipes')
 
 
 # ---------------------------------------------------------------------------

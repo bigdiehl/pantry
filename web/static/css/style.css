@@ -5,6 +5,23 @@ body {
     color: #333;
 }
 
+/* Fixed page width - no page-level horizontal scroll/drag on any page, even
+   if something inside briefly overflows. Anything that genuinely needs to
+   scroll sideways (e.g. a wide table) opts in with its own overflow-x:auto
+   container. */
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* Navbar pinned to the top of the viewport on every page, so it's always
+   reachable while scrolling a long list. */
+header.navbar-light {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+}
+
 /* Color variables for consistency */
 :root {
     --primary-blue: #1e88e5;
@@ -13,11 +30,12 @@ body {
     --text-medium: #5a6c7d;
 }
 
-/* Site title styling */
+/* Site title styling - its own row above the nav, so its size/position never
+   shifts when the nav below expands or collapses. */
 .site-title {
     font-family: 'Playfair Display', serif;
     font-weight: 700;
-    font-size: 2.5rem;
+    font-size: 1.6rem;
     color: #2c3e50;
     letter-spacing: 0.5px;
     margin: 0;
@@ -536,12 +554,64 @@ input.form-control:focus {
     }
 }
 
-/* Navigation - prevent wrapping */
+/* Title row and nav row are separate lines, but share the same inner width/
+   centering so they line up - the toggler lives in the title row, so the nav
+   row's own left edge (where the toggler used to sit) needs to line up too. */
+.nav-container {
+    justify-content: flex-start;
+}
+
+/* Match the page content's own max-width/centering (see
+   .recipes-page-container), starting as soon as the nav switches to its
+   flat, one-line desktop layout (navbar-expand-xl's own 1200px breakpoint) -
+   otherwise the title and nav links each stretch to their own edge of the
+   full-width bar instead of reading as one centered block. */
+@media (min-width: 1200px) {
+    .nav-container {
+        max-width: 1140px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* On desktop the toggler is hidden (d-xl-none) and every page link is
+       shown flat, so both rows read better centered rather than the
+       title pinned right / links pinned left (mobile's stacked layout
+       still wants the toggler-left/title-right split, so this is scoped
+       to the desktop breakpoint only). */
+    .nav-container.justify-content-between {
+        justify-content: center !important;
+    }
+
+    .nav-container .site-title {
+        margin-left: 0 !important;
+    }
+
+    /* The buttons list (.nav-buttons-container) only ever takes up as much
+       width as its buttons - flex items don't stretch to fill their
+       container by default - so centering needs to happen one level up, on
+       #mainNav itself (the flex row that actually spans the nav's width). */
+    #mainNav {
+        justify-content: center;
+    }
+}
+
+@media (min-width: 1400px) {
+    .nav-container {
+        max-width: 1320px;
+    }
+}
+
+@media (min-width: 1600px) {
+    .nav-container {
+        max-width: 1400px;
+    }
+}
+
+/* Navigation - prevent wrapping on desktop, where every page link is shown flat. */
 .nav-buttons-container {
     display: flex;
     flex-wrap: nowrap;
     gap: 0.5rem;
-    overflow-x: auto;
 }
 
 .nav-btn {
@@ -551,6 +621,34 @@ input.form-control:focus {
     font-weight: 600;
     border-radius: 6px;
     transition: all 0.2s ease;
+}
+
+.navbar-toggler {
+    border-color: var(--primary-blue);
+}
+
+.navbar-toggler:focus {
+    box-shadow: 0 0 0 0.2rem rgba(30, 136, 229, 0.35);
+}
+
+/* Below the expand-xl breakpoint, every page link collapses into one flat,
+   full-width list under the toggler - no nested "Manage"/"Demos" dropdowns. */
+@media (max-width: 1199.98px) {
+    .nav-buttons-container {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        padding: 0.5rem 0;
+    }
+
+    .nav-buttons-container .nav-item {
+        width: 100%;
+    }
+
+    .nav-buttons-container .nav-btn {
+        width: 100%;
+        text-align: left;
+    }
 }
 
 /* Button styling consistency */
@@ -638,11 +736,6 @@ tr:nth-child(even) {
 
 @media (max-width: 768px) {
     /* Header and title */
-    .site-title {
-        font-size: 1.75rem !important;
-        padding: 0.5rem !important;
-    }
-
     h1 {
         font-size: 1.5rem !important;
         padding: 0.5rem !important;
@@ -670,8 +763,12 @@ tr:nth-child(even) {
         min-height: 38px !important;
     }
 
-    /* Tab content */
-    .tab-content {
+    /* Recipe browser's tab content: shrink its own scrollable area on mobile.
+       Scoped to #recipeTabContent (not the bare .tab-content class) because
+       most .tab-content elements don't set overflow-y: auto themselves, so a
+       blanket max-height just let their content spill out and overlap
+       whatever followed instead of scrolling. */
+    #recipeTabContent {
         max-height: 50vh !important;
     }
 
@@ -718,10 +815,6 @@ tr:nth-child(even) {
 
 @media (max-width: 576px) {
     /* Extra small devices */
-    .site-title {
-        font-size: 1.5rem !important;
-    }
-
     h1 {
         font-size: 1.25rem !important;
     }

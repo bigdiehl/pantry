@@ -6,18 +6,23 @@ from pathlib import Path
 import re
 import random
 import shutil
-from dataclasses import dataclass
+import threading
+import time
+import uuid
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from io import BytesIO
 
 import markdown
 import yaml
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory, send_file, session, redirect
+from pydantic import ValidationError
 from weasyprint import HTML, CSS
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from recipe_core.recipe_lib import RecipeData
+from recipe_core.recipe_lib import RecipeData, CategoryType, MealType, FoodType, parse_quantity
+from recipe_core.foods import list_foods, create_food, update_food, delete_food
 from recipe_core.shopping_list import (
     find_recipe_dirs,
     generate_shopping_list_md,
@@ -25,7 +30,7 @@ from recipe_core.shopping_list import (
     get_shopping_list_data
 )
 from recipe_core.mailer import build_message, send_email
-from recipe_core.gemini_importer import extract_recipe, ImportResult
+from recipe_core.gemini_importer import extract_recipe, ImportResult, MAX_RETRIES
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +42,10 @@ _this_dir = os.path.dirname(__file__)
 with open(os.path.join(_this_dir, "config.yaml")) as f:
     config = yaml.safe_load(f)
 
-RECIPES_DIR = os.path.join(_this_dir, config["app"]["recipes_dir"])
-PENDING_DIR = os.path.join(_this_dir, config["app"]["pending_dir"])
+DATA_DIR     = os.environ.get("RECIPES_DATA_DIR") or os.path.join(_this_dir, config["app"]["data_dir"])
+RECIPES_DIR  = os.path.join(DATA_DIR, config["app"]["recipes_dir"])
+PENDING_DIR  = os.path.join(DATA_DIR, config["app"]["pending_dir"])
+ARCHIVED_DIR = os.path.join(DATA_DIR, config["app"]["archived_dir"])
 STATE_FILE  = os.path.join(_this_dir, config["app"]["state_file"])
 OUTPUT_DIR  = os.path.join(_this_dir, config["app"]["output_dir"])
 
@@ -46,6 +53,19 @@ OUTPUT_DIR  = os.path.join(_this_dir, config["app"]["output_dir"])
 EMAIL_CONFIG = config.get("email", {})
 SMTP_SERVER = EMAIL_CONFIG.get("smtp_server", "smtp.gmail.com")
 SMTP_PORT = EMAIL_CONFIG.get("smtp_port", 587)
+
+# Feature flags based on environment variables
+GMAIL_SENDER = os.environ.get("GMAIL_SENDER")
+GMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+EMAIL_ENABLED = bool(GMAIL_SENDER and GMAIL_PASSWORD)
+IMPORT_ENABLED = bool(GEMINI_API_KEY)
+
+if not EMAIL_ENABLED:
+    logger.warning("Email features disabled: GMAIL_SENDER and/or GMAIL_APP_PASSWORD not set")
+if not IMPORT_ENABLED:
+    logger.warning("Recipe import disabled: GEMINI_API_KEY not set")
 
 # ---------------------------------------------------------------------------
 # Recipe dataclass
@@ -97,6 +117,20 @@ def _find_md_file(recipe_dir: str) -> str:
             return f
     return ""
 
+def _load_category_meal(recipe_dir: str, slug: str) -> tuple[str, str]:
+    """Read `category`/`meal` out of a recipe directory's recipe.yaml, if present."""
+    category = ""
+    meal = ""
+    yaml_path = osp.join(recipe_dir, "recipe.yaml")
+    if osp.exists(yaml_path):
+        try:
+            recipe_data = RecipeData.from_yaml(yaml_path)
+            category = recipe_data.category.value
+            meal = recipe_data.meal.value
+        except Exception as e:
+            logger.warning(f"Failed to load recipe data for {slug}: {e}")
+    return category, meal
+
 def get_all_recipes() -> list[Recipe]:
     """
     Build the current recipe list from the filesystem, enriched with
@@ -111,17 +145,7 @@ def get_all_recipes() -> list[Recipe]:
         slug = osp.basename(recipe_dir)
         entry = state.get(slug, {})
 
-        # Load recipe metadata from recipe.yaml
-        category = ""
-        meal = ""
-        yaml_path = osp.join(recipe_dir, "recipe.yaml")
-        if osp.exists(yaml_path):
-            try:
-                recipe_data = RecipeData.from_yaml(yaml_path)
-                category = recipe_data.category.value
-                meal = recipe_data.meal.value
-            except Exception as e:
-                logger.warning(f"Failed to load recipe data for {slug}: {e}")
+        category, meal = _load_category_meal(recipe_dir, slug)
 
         recipes.append(Recipe(
             slug             = slug,
@@ -297,12 +321,12 @@ def send_scheduled_shopping_list():
         pdf_bytes = HTML(string=full_html).write_pdf()
 
         # Send email
-        sender = os.environ.get("GMAIL_SENDER")
-        password = os.environ.get("GMAIL_APP_PASSWORD")
-
-        if not sender or not password:
-            logger.error("Email credentials not configured")
+        if not EMAIL_ENABLED:
+            logger.error("Email features disabled - skipping scheduled email")
             return
+
+        sender = GMAIL_SENDER
+        password = GMAIL_PASSWORD
 
         today = date.today().isoformat()
         filename = f"shopping-list-{today}.pdf"
@@ -385,13 +409,32 @@ def get_shopping_list_html(show_sources: bool = False) -> str:
 # Routes — home
 # ---------------------------------------------------------------------------
 
-@app.route("/")
-def index():
+@app.route("/service-worker.js")
+def service_worker():
+    """Serve the service worker from the root so its scope covers every page."""
+    response = send_from_directory(app.static_folder, "service-worker.js",
+                                   mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+@app.route("/api/features")
+def features():
+    """Return which features are enabled based on env vars."""
+    return jsonify({
+        "email_enabled": EMAIL_ENABLED,
+        "import_enabled": IMPORT_ENABLED
+    })
+
+@app.route("/archive/shopping_list")
+def archived_shopping_list():
+    """Archived: markdown-based shopping list page (email/PDF/schedule UI), superseded by the interactive table at '/'."""
     recipes = get_all_recipes()
     selected = sorted([r for r in recipes if r.selected], key=lambda r: r.name)
     return render_template(
-        "index.html",
-        active_page="home",
+        "archive_shopping_list.html",
+        active_page="archive_shopping_list",
+        email_enabled=EMAIL_ENABLED,
+        import_enabled=IMPORT_ENABLED,
         recipes=selected,
         shopping_list_html=get_shopping_list_html(),
     )
@@ -410,6 +453,12 @@ def update_shopping_list_html():
 @app.route("/send_list", methods=["POST"])
 def send_list():
     """Send shopping list PDF via email"""
+    if not EMAIL_ENABLED:
+        return jsonify({
+            "success": False,
+            "error": "Email feature disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD environment variables to enable."
+        }), 503
+
     data = request.get_json()
     email_input = data.get("email", "").strip()
 
@@ -422,21 +471,14 @@ def send_list():
     if not recipients:
         return jsonify({"success": False, "error": "No valid email addresses"}), 400
 
-    # Get sender email and password from environment
-    sender = os.environ.get("GMAIL_SENDER")
-    password = os.environ.get("GMAIL_APP_PASSWORD")
-
-    if not sender:
-        return jsonify({"success": False, "error": "GMAIL_SENDER environment variable not set"}), 500
-
-    if not password:
-        return jsonify({"success": False, "error": "GMAIL_APP_PASSWORD environment variable not set"}), 500
-
     # Generate PDF
     selected_slugs = [r.slug for r in get_all_recipes() if r.selected]
 
     if not selected_slugs:
         return jsonify({"success": False, "error": "No recipes selected"}), 400
+
+    sender = GMAIL_SENDER
+    password = GMAIL_PASSWORD
 
     try:
         lists, metas = _get_shopping_list_data()
@@ -739,7 +781,69 @@ def download_shopping_list_pdf():
 @app.route("/recipes_list")
 def recipes_list():
     recipes = sorted(get_all_recipes(), key=lambda r: r.name)
-    return render_template("recipes_list.html", recipes=recipes, active_page="recipes_list")
+    archived_recipes = sorted(_list_flat_recipes(ARCHIVED_DIR, "archived"), key=lambda r: r["name"])
+    return render_template(
+        "recipes_list.html",
+        recipes=[asdict(r) for r in recipes],
+        archived_recipes=archived_recipes,
+        active_page="recipes_list",
+        email_enabled=EMAIL_ENABLED,
+        import_enabled=IMPORT_ENABLED,
+    )
+
+@app.route("/archive/shopping_demo")
+def archived_shopping_demo():
+    """Archived: interactive shopping list prototype using fake demo data (not the real recipe data)."""
+    return render_template("archive_shopping_demo.html", active_page="archive_shopping_demo", email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
+
+def get_shopping_list_items() -> dict:
+    """
+    Return the merged shopping list for the currently selected recipes, split
+    into 'main' (things to buy) and 'secondary' (likely already have) — each
+    {category: [{name, quantity, vendor, sources}, ...]} — for the
+    interactive table page. 'sources' is [{slug, name}, ...] of the recipes
+    that contributed the ingredient, for the ingredient detail popup.
+    """
+    all_recipes = get_all_recipes()
+    selected_slugs = [r.slug for r in all_recipes if r.selected]
+    if not selected_slugs:
+        return {"main": {}, "secondary": {}}
+
+    recipe_names = {r.slug: r.name for r in all_recipes}
+    lists, metas = _get_shopping_list_data()
+    main, secondary = get_merged_shopping_list(selected_slugs, lists)
+
+    def _to_items(group: dict) -> dict[str, list[dict]]:
+        items: dict[str, list[dict]] = {}
+        for category, ingredients in group.items():
+            for mi in ingredients:
+                sources = [
+                    {"slug": slug, "name": recipe_names.get(slug, slug.replace("_", " ").title())}
+                    for slug in mi.all_source_slugs()
+                ]
+                items.setdefault(category, []).append({
+                    "name": mi.food.get_name(),
+                    "quantity": mi.format_quantity(selected_slugs),
+                    "vendor": mi.food.preferred_vendor or "",
+                    "sources": sources,
+                })
+        return items
+
+    return {"main": _to_items(main), "secondary": _to_items(secondary)}
+
+@app.route("/")
+def index():
+    """Shopping list page: interactive table (sortable by name/category), built from selected recipes."""
+    recipes = get_all_recipes()
+    selected = sorted([r for r in recipes if r.selected], key=lambda r: r.name)
+    return render_template(
+        "index.html",
+        active_page="home",
+        email_enabled=EMAIL_ENABLED,
+        import_enabled=IMPORT_ENABLED,
+        recipes=selected,
+        shopping_items=get_shopping_list_items(),
+    )
 
 @app.route("/recipes_list/toggle/<slug>", methods=["POST"])
 def toggle(slug):
@@ -768,6 +872,14 @@ def serve_pending_file(slug, file):
     if not osp.exists(pending_recipe_dir):
         abort(404)
     return send_from_directory(pending_recipe_dir, file)
+
+@app.route("/archived/<slug>/<path:file>")
+def serve_archived_file(slug, file):
+    """Serve files from archived recipe directory."""
+    archived_recipe_dir = osp.join(ARCHIVED_DIR, slug)
+    if not osp.exists(archived_recipe_dir):
+        abort(404)
+    return send_from_directory(archived_recipe_dir, file)
 
 @app.route("/markdown/recipe/<recipe_name>")
 def get_markdown_recipe(recipe_name):
@@ -823,7 +935,7 @@ def save_pending(result: ImportResult, pending_dir: str = PENDING_DIR):
 def promote_recipe(slug: str, pending_dir: str = PENDING_DIR, recipes_dir: str = RECIPES_DIR):
     """Move a recipe from pending to saved/dinner directory."""
     src = osp.join(pending_dir, slug)
-    dst = osp.join(recipes_dir, "saved", "dinner", slug)
+    dst = osp.join(recipes_dir, "dinner", slug)
 
     if not osp.exists(src):
         raise FileNotFoundError(f"Pending recipe not found: {slug}")
@@ -880,140 +992,537 @@ def delete_saved_recipe(slug: str, recipes_dir: str = RECIPES_DIR):
 
     shutil.rmtree(recipe_dir)
 
+# Saved recipes are filed under a subdirectory (breakfast/dinner/sides) that's
+# an editorial choice, not derivable from category/meal (e.g. sides live
+# under sides/ regardless of their meal). Archiving a saved recipe drops a
+# marker file naming that subdirectory so unarchiving can put it right back,
+# instead of guessing.
+_ARCHIVE_ORIGIN_FILE = ".archived_from"
+
+def archive_recipe(slug: str, recipes_dir: str = RECIPES_DIR, pending_dir: str = PENDING_DIR,
+                    archived_dir: str = ARCHIVED_DIR):
+    """Move a recipe (saved or pending) into the flat archived directory."""
+    src = None
+    origin_subdir = None
+    for recipe in get_all_recipes():
+        if recipe.slug == slug:
+            src = osp.join(recipes_dir, recipe.path)
+            origin_subdir = osp.dirname(recipe.path)
+            break
+    if not src or not osp.exists(src):
+        candidate = osp.join(pending_dir, slug)
+        if osp.exists(candidate):
+            src = candidate
+            origin_subdir = None  # came from pending - no saved subdirectory to remember
+
+    if not src or not osp.exists(src):
+        raise FileNotFoundError(f"Recipe not found: {slug}")
+
+    dst = osp.join(archived_dir, slug)
+
+    if osp.exists(dst):
+        raise FileExistsError(f"Recipe already exists in archive: {slug}")
+
+    os.makedirs(archived_dir, exist_ok=True)
+
+    # Move the directory
+    shutil.move(src, dst)
+
+    if origin_subdir:
+        with open(osp.join(dst, _ARCHIVE_ORIGIN_FILE), "w") as f:
+            f.write(origin_subdir)
+
+def unarchive_recipe(slug: str, archived_dir: str = ARCHIVED_DIR, recipes_dir: str = RECIPES_DIR):
+    """Move a recipe from archived back to saved, restoring its original
+    subdirectory (breakfast/dinner/sides) when known, else defaulting to
+    dinner/ (matching where newly-promoted recipes land)."""
+    src = osp.join(archived_dir, slug)
+
+    if not osp.exists(src):
+        raise FileNotFoundError(f"Archived recipe not found: {slug}")
+
+    subdir = "dinner"
+    origin_file = osp.join(src, _ARCHIVE_ORIGIN_FILE)
+    if osp.exists(origin_file):
+        with open(origin_file) as f:
+            saved_subdir = f.read().strip()
+        if saved_subdir:
+            subdir = saved_subdir
+        os.remove(origin_file)  # don't carry the marker back into saved/
+
+    dst = osp.join(recipes_dir, subdir, slug)
+
+    if osp.exists(dst):
+        raise FileExistsError(f"Recipe already exists: {slug}")
+
+    os.makedirs(osp.dirname(dst), exist_ok=True)
+
+    # Move the directory
+    shutil.move(src, dst)
+
+def delete_archived_recipe(slug: str, archived_dir: str = ARCHIVED_DIR):
+    """Delete an archived recipe."""
+    recipe_dir = osp.join(archived_dir, slug)
+    if not osp.exists(recipe_dir):
+        raise FileNotFoundError(f"Archived recipe not found: {slug}")
+
+    shutil.rmtree(recipe_dir)
+
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+# URL path prefix (under which recipe files are served) and editor status,
+# keyed together so the editor's status param maps onto the right routes.
+_STATUS_URL_PREFIX = {"saved": "recipes", "pending": "pending", "archived": "archived"}
+
+def _recipe_dir_for_status(status: str, slug: str) -> str | None:
+    """Resolve a recipe's directory for the editor, or None if it doesn't exist."""
+    if status == "saved":
+        recipe = next((r for r in get_all_recipes() if r.slug == slug), None)
+        return osp.join(RECIPES_DIR, recipe.path) if recipe else None
+    elif status == "pending":
+        recipe_dir = osp.join(PENDING_DIR, slug)
+        return recipe_dir if osp.exists(recipe_dir) else None
+    elif status == "archived":
+        recipe_dir = osp.join(ARCHIVED_DIR, slug)
+        return recipe_dir if osp.exists(recipe_dir) else None
+    return None
+
+def _find_recipe_image(recipe_dir: str) -> str | None:
+    """Return the filename of the recipe's image (e.g. 'image.jpg'), or None."""
+    for f in os.listdir(recipe_dir):
+        name, ext = osp.splitext(f)
+        if name.lower() == "image" and ext.lower() in ALLOWED_IMAGE_EXTENSIONS:
+            return f
+    return None
+
+def _recipe_image_url(status: str, slug: str, filename: str) -> str:
+    return f"/{_STATUS_URL_PREFIX[status]}/{slug}/{filename}"
+
+DEFAULT_IMAGE_WIDTH = 400
+IMAGE_WIDTH_MIN = 100
+IMAGE_WIDTH_MAX = 1200
+
+_IMG_WIDTH_RE = re.compile(r'<img\b[^>]*\bwidth=["\']?(\d+)', re.IGNORECASE)
+
+def _extract_image_width(md_content: str, default: int = DEFAULT_IMAGE_WIDTH) -> int:
+    """Read the width= attribute off the recipe's <img> tag, if any."""
+    m = _IMG_WIDTH_RE.search(md_content or "")
+    return int(m.group(1)) if m else default
+
+_H2_RE = re.compile(r"^##\s+(.*?)\s*:?\s*$", re.MULTILINE)
+
+def _split_recipe_markdown(md_content: str) -> tuple[str, str, bool]:
+    """
+    Split a recipe.md body into (ingredients_md, instructions_md, matched).
+
+    Content before the first '## ' header (title/servings/img) is discarded —
+    the editor always regenerates that part. A header containing "ingredient"
+    feeds ingredients_md; one containing "direction"/"instruction"/"step" feeds
+    instructions_md. Anything else (or no headers at all) is folded into
+    instructions_md with matched=False, so nothing is silently dropped.
+    """
+    headers = list(_H2_RE.finditer(md_content or ""))
+    if not headers:
+        return "", (md_content or "").strip(), not (md_content or "").strip()
+
+    ingredients_parts = []
+    instructions_parts = []
+    matched = True
+
+    for i, h in enumerate(headers):
+        title = h.group(1).lower()
+        start = h.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(md_content)
+        body = md_content[start:end].strip("\n")
+
+        if "ingredient" in title:
+            ingredients_parts.append(body)
+        elif any(k in title for k in ("direction", "instruction", "step")):
+            instructions_parts.append(body)
+        else:
+            # Unrecognized section — keep it (as its own heading) rather than
+            # drop it, but flag so the UI can prompt a manual check.
+            instructions_parts.append(f"## {h.group(1)}\n\n{body}")
+            matched = False
+
+    return "\n\n".join(p for p in ingredients_parts if p).strip(), \
+           "\n\n".join(p for p in instructions_parts if p).strip(), \
+           matched
+
+def _render_recipe_markdown(name: str, servings, image_filename: str | None,
+                             ingredients_md: str, instructions_md: str,
+                             image_width: int = DEFAULT_IMAGE_WIDTH) -> str:
+    """Build a full recipe.md from its structured pieces."""
+    lines = [f"# {name}", "", f"Servings: {servings}", ""]
+    if image_filename:
+        lines += [f'<img style="float: right;" src="{image_filename}" width={image_width}>', ""]
+    lines += [
+        "## Ingredients", "",
+        (ingredients_md or "").strip(), "",
+        "## Instructions", "",
+        (instructions_md or "").strip(), "",
+    ]
+    return "\n".join(lines)
+
+def _markdown_to_preview_html(md_content: str, status: str, slug: str) -> str:
+    """Render recipe markdown to HTML, fixing up relative image paths."""
+    html_content = markdown.markdown(md_content, extensions=[
+        "tables",
+        "fenced_code",
+        "nl2br",
+        "sane_lists"
+    ])
+    prefix = _STATUS_URL_PREFIX[status]
+    html_content = re.sub(
+        r'src="([^":]+)"',
+        lambda m: f'src="/{prefix}/{slug}/{m.group(1)}"',
+        html_content,
+    )
+    return html_content
+
+def _rewrite_recipe_image_tag(status: str, slug: str, recipe_dir: str, image_filename: str | None,
+                               image_width: int | None = None):
+    """
+    Re-render recipe.md with an updated (or removed) <img> tag, keeping the
+    rest of the file (title/servings from recipe.yaml, existing
+    Ingredients/Instructions content) intact. Used after an image is added,
+    replaced, removed, or resized so the tag never gets out of sync with the
+    file on disk, regardless of what's unsaved in the browser.
+
+    If image_width isn't given, the current width already on disk (or the
+    default) is preserved — replacing an image doesn't reset its size.
+    """
+    yaml_path = osp.join(recipe_dir, "recipe.yaml")
+    name = slug.replace("_", " ").title()
+    servings = ""
+    if osp.exists(yaml_path):
+        try:
+            with open(yaml_path) as f:
+                loaded = yaml.safe_load(f) or {}
+            name = loaded.get("name") or name
+            servings = loaded.get("servings", "")
+        except yaml.YAMLError:
+            pass
+
+    md_path = osp.join(recipe_dir, "recipe.md")
+    ingredients_md, instructions_md = "", ""
+    current_width = DEFAULT_IMAGE_WIDTH
+    if osp.exists(md_path):
+        with open(md_path) as f:
+            existing_md = f.read()
+        ingredients_md, instructions_md, _ = _split_recipe_markdown(existing_md)
+        current_width = _extract_image_width(existing_md)
+
+    new_md = _render_recipe_markdown(
+        name, servings, image_filename, ingredients_md, instructions_md,
+        image_width=image_width if image_width is not None else current_width
+    )
+    with open(md_path, "w") as f:
+        f.write(new_md)
+    return new_md
+
 # ---------------------------------------------------------------------------
 # Routes — Recipe Editor
 # ---------------------------------------------------------------------------
 
 @app.route("/editor", methods=["GET"])
 def editor_page():
-    """Render the recipe editor page with tabs for editing and importing."""
-    return render_template("editor.html", active_page="editor")
+    """Render the Edit Recipes page."""
+    return render_template("editor.html", active_page="editor", email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
+
+def _list_flat_recipes(dir_path: str, status: str) -> list[dict]:
+    """List recipes for a flat (non-meal-nested) directory, e.g. pending/archived."""
+    recipes = []
+    if osp.exists(dir_path):
+        for slug in os.listdir(dir_path):
+            recipe_dir = osp.join(dir_path, slug)
+            if osp.isdir(recipe_dir):
+                category, meal = _load_category_meal(recipe_dir, slug)
+                recipes.append({
+                    "slug": slug,
+                    "name": slug.replace("_", " ").title(),
+                    "category": category,
+                    "meal": meal,
+                    "status": status
+                })
+    return recipes
 
 @app.route("/editor/recipes", methods=["GET"])
 def list_all_recipes():
-    """List all recipes (saved and pending) for the editor."""
-    saved_recipes = []
-    pending_recipes = []
-
-    # Get saved recipes
-    for recipe in get_all_recipes():
-        saved_recipes.append({
+    """List all recipes (saved, pending, and archived) for the editor."""
+    saved_recipes = [
+        {
             "slug": recipe.slug,
             "name": recipe.name,
             "path": recipe.path,
+            "category": recipe.category,
+            "meal": recipe.meal,
             "status": "saved"
-        })
-
-    # Get pending recipes
-    if osp.exists(PENDING_DIR):
-        for slug in os.listdir(PENDING_DIR):
-            recipe_dir = osp.join(PENDING_DIR, slug)
-            if osp.isdir(recipe_dir):
-                pending_recipes.append({
-                    "slug": slug,
-                    "name": slug.replace("_", " ").title(),
-                    "status": "pending"
-                })
+        }
+        for recipe in get_all_recipes()
+    ]
 
     return jsonify({
         "success": True,
         "saved": saved_recipes,
-        "pending": pending_recipes
+        "pending": _list_flat_recipes(PENDING_DIR, "pending"),
+        "archived": _list_flat_recipes(ARCHIVED_DIR, "archived")
     })
+
+DEFAULT_CATEGORY = CategoryType.Entree.value
+DEFAULT_MEAL = MealType.Dinner.value
+
+@app.route("/editor/foods", methods=["GET"])
+def list_known_foods():
+    """Sorted list of known food names, for the ingredient autocomplete."""
+    return jsonify({"success": True, "foods": sorted(f.get_name() for f in list_foods())})
 
 @app.route("/editor/recipe/<status>/<slug>", methods=["GET"])
 def load_recipe(status, slug):
-    """Load a recipe's YAML and markdown for editing."""
-    if status == "saved":
-        recipes = get_all_recipes()
-        recipe = next((r for r in recipes if r.slug == slug), None)
-        if not recipe:
-            return jsonify({"error": "Recipe not found"}), 404
-
-        recipe_dir = osp.join(RECIPES_DIR, recipe.path)
-    elif status == "pending":
-        recipe_dir = osp.join(PENDING_DIR, slug)
-        if not osp.exists(recipe_dir):
-            return jsonify({"error": "Recipe not found"}), 404
-    else:
+    """Load a recipe's metadata and content, structured for the editor form."""
+    if status not in ("saved", "pending", "archived"):
         return jsonify({"error": "Invalid status"}), 400
 
-    # Load YAML
+    recipe_dir = _recipe_dir_for_status(status, slug)
+    if not recipe_dir:
+        return jsonify({"error": "Recipe not found"}), 404
+
+    # Load recipe.yaml leniently — defaults fill in anything missing or
+    # invalid so even a broken file can be opened and fixed in the editor.
     yaml_path = osp.join(recipe_dir, "recipe.yaml")
-    yaml_content = ""
+    yaml_error = None
+    raw = {}
     if osp.exists(yaml_path):
-        with open(yaml_path, "r") as f:
-            yaml_content = f.read()
+        try:
+            with open(yaml_path) as f:
+                raw = yaml.safe_load(f) or {}
+            if not isinstance(raw, dict):
+                raise yaml.YAMLError(f"Expected a YAML mapping, got {type(raw).__name__}")
+        except yaml.YAMLError as e:
+            yaml_error = str(e)
+            raw = {}
 
-    # Load Markdown (try recipe.md first, then any .md file)
+    metadata = {
+        "name": raw.get("name") or slug.replace("_", " ").title(),
+        "servings": raw.get("servings", 1),
+        "category": str(raw.get("category", DEFAULT_CATEGORY)).upper(),
+        "meal": str(raw.get("meal", DEFAULT_MEAL)).upper(),
+        "enabled": raw.get("enabled", True),
+        "min_period_weeks": raw.get("min_period_weeks", 4),
+        "ingredients": [
+            {"food": str(ing.get("food", "")), "quantity": str(ing.get("quantity") or "")}
+            for ing in (raw.get("ingredients") or []) if isinstance(ing, dict)
+        ],
+    }
+
+    # Load recipe.md (try recipe.md first, then any .md file) and split it
     md_content = ""
-    md_filename = "recipe.md"
-    md_path = osp.join(recipe_dir, md_filename)
-
+    md_path = osp.join(recipe_dir, "recipe.md")
     if not osp.exists(md_path):
-        # Find any markdown file
         for f in os.listdir(recipe_dir):
             if f.endswith(".md"):
-                md_filename = f
                 md_path = osp.join(recipe_dir, f)
                 break
-
     if osp.exists(md_path):
         with open(md_path, "r") as f:
             md_content = f.read()
 
+    ingredients_md, instructions_md, markdown_matched = _split_recipe_markdown(md_content)
+
+    image_filename = _find_recipe_image(recipe_dir)
+    image_url = _recipe_image_url(status, slug, image_filename) if image_filename else None
+    image_width = _extract_image_width(md_content)
+
     return jsonify({
         "success": True,
-        "yaml": yaml_content,
-        "markdown": md_content,
-        "md_filename": md_filename
+        "metadata": metadata,
+        "yaml_error": yaml_error,
+        "ingredients_md": ingredients_md,
+        "instructions_md": instructions_md,
+        "markdown_matched": markdown_matched,
+        "image_filename": image_filename,
+        "image_url": image_url,
+        "image_width": image_width,
+        "preview_html": _markdown_to_preview_html(md_content, status, slug) if md_content else ""
     })
 
 @app.route("/editor/recipe/<status>/<slug>", methods=["POST"])
 def save_recipe(status, slug):
-    """Save edited recipe YAML and markdown."""
-    data = request.get_json()
-    yaml_content = data.get("yaml", "")
-    markdown_content = data.get("markdown", "")
-
-    if status == "saved":
-        recipes = get_all_recipes()
-        recipe = next((r for r in recipes if r.slug == slug), None)
-        if not recipe:
-            return jsonify({"error": "Recipe not found"}), 404
-
-        recipe_dir = osp.join(RECIPES_DIR, recipe.path)
-    elif status == "pending":
-        recipe_dir = osp.join(PENDING_DIR, slug)
-        if not osp.exists(recipe_dir):
-            return jsonify({"error": "Recipe not found"}), 404
-    else:
+    """Save a recipe's metadata (recipe.yaml) and content (recipe.md)."""
+    if status not in ("saved", "pending", "archived"):
         return jsonify({"error": "Invalid status"}), 400
 
-    try:
-        # Validate YAML
-        yaml.safe_load(yaml_content)
+    recipe_dir = _recipe_dir_for_status(status, slug)
+    if not recipe_dir:
+        return jsonify({"error": "Recipe not found"}), 404
 
-        # Save YAML
+    data = request.get_json() or {}
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+
+    try:
+        servings = int(data.get("servings", 1))
+        min_period_weeks = int(data.get("min_period_weeks", 4))
+        if servings < 0 or min_period_weeks < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"error": "Servings and min period weeks must be non-negative numbers"}), 400
+
+    category = str(data.get("category", "")).upper()
+    if category not in (c.value for c in CategoryType):
+        return jsonify({"error": f"Invalid category: {category}"}), 400
+
+    meal = str(data.get("meal", "")).upper()
+    if meal not in (m.value for m in MealType):
+        return jsonify({"error": f"Invalid meal: {meal}"}), 400
+
+    ingredients = []
+    for row in data.get("ingredients", []):
+        food = (row.get("food") or "").strip()
+        if not food:
+            continue
+        quantity = (row.get("quantity") or "").strip()
+        if quantity == "-":
+            quantity = ""
+        try:
+            parse_quantity(quantity)
+        except ValueError as e:
+            return jsonify({"error": f"Ingredient '{food}': {e}"}), 400
+        ingredients.append({"food": food, "quantity": quantity})
+
+    yaml_data = {
+        "name": name,
+        "servings": servings,
+        "category": category,
+        "meal": meal,
+        "enabled": bool(data.get("enabled", True)),
+        "min_period_weeks": min_period_weeks,
+        "ingredients": ingredients,
+    }
+
+    try:
         yaml_path = osp.join(recipe_dir, "recipe.yaml")
         with open(yaml_path, "w") as f:
-            f.write(yaml_content)
+            yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 
-        # Save Markdown
+        # Preserve the current image width — it's managed by the dedicated
+        # width control, not the Recipe Details form.
         md_path = osp.join(recipe_dir, "recipe.md")
-        with open(md_path, "w") as f:
-            f.write(markdown_content)
+        current_width = DEFAULT_IMAGE_WIDTH
+        if osp.exists(md_path):
+            with open(md_path) as f:
+                current_width = _extract_image_width(f.read())
 
-        # Invalidate cache if saved recipe
+        image_filename = _find_recipe_image(recipe_dir)
+        md_content = _render_recipe_markdown(
+            name, servings, image_filename,
+            data.get("ingredients_md", ""), data.get("instructions_md", ""),
+            image_width=current_width
+        )
+        with open(md_path, "w") as f:
+            f.write(md_content)
+
         if status == "saved":
             _invalidate_shopping_list_cache()
 
-        return jsonify({"success": True, "message": "Recipe saved successfully"})
+        return jsonify({
+            "success": True,
+            "message": "Recipe saved successfully",
+            "preview_html": _markdown_to_preview_html(md_content, status, slug)
+        })
 
-    except yaml.YAMLError as e:
-        return jsonify({"error": f"Invalid YAML: {str(e)}"}), 400
     except Exception as e:
         logger.error("Failed to save recipe: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/editor/recipe/<status>/<slug>/image", methods=["POST"])
+def upload_recipe_image(status, slug):
+    """Add or replace the recipe's image."""
+    recipe_dir = _recipe_dir_for_status(status, slug)
+    if not recipe_dir:
+        return jsonify({"error": "Recipe not found"}), 404
+
+    file = request.files.get("image")
+    if not file or not file.filename:
+        return jsonify({"error": "No image file provided"}), 400
+
+    ext = osp.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return jsonify({"error": f"Unsupported image type: {ext or '(none)'}"}), 400
+
+    try:
+        # Remove any existing image (in case the extension changed)
+        existing = _find_recipe_image(recipe_dir)
+        if existing:
+            os.remove(osp.join(recipe_dir, existing))
+
+        filename = f"image{ext}"
+        file.save(osp.join(recipe_dir, filename))
+        new_md = _rewrite_recipe_image_tag(status, slug, recipe_dir, filename)
+
+        return jsonify({
+            "success": True,
+            "filename": filename,
+            "url": _recipe_image_url(status, slug, filename),
+            "image_width": _extract_image_width(new_md),
+            "preview_html": _markdown_to_preview_html(new_md, status, slug)
+        })
+    except Exception as e:
+        logger.error("Failed to save recipe image: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/editor/recipe/<status>/<slug>/image/width", methods=["POST"])
+def set_recipe_image_width(status, slug):
+    """Adjust the display width of the recipe's <img> tag."""
+    recipe_dir = _recipe_dir_for_status(status, slug)
+    if not recipe_dir:
+        return jsonify({"error": "Recipe not found"}), 404
+
+    try:
+        width = int((request.get_json() or {}).get("width"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Width must be a number"}), 400
+
+    if not (IMAGE_WIDTH_MIN <= width <= IMAGE_WIDTH_MAX):
+        return jsonify({"error": f"Width must be between {IMAGE_WIDTH_MIN} and {IMAGE_WIDTH_MAX}"}), 400
+
+    image_filename = _find_recipe_image(recipe_dir)
+    if not image_filename:
+        return jsonify({"error": "No image to resize"}), 404
+
+    try:
+        new_md = _rewrite_recipe_image_tag(status, slug, recipe_dir, image_filename, image_width=width)
+        return jsonify({
+            "success": True,
+            "width": width,
+            "preview_html": _markdown_to_preview_html(new_md, status, slug)
+        })
+    except Exception as e:
+        logger.error("Failed to set recipe image width: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/editor/recipe/<status>/<slug>/image", methods=["DELETE"])
+def delete_recipe_image(status, slug):
+    """Remove the recipe's image, if any."""
+    recipe_dir = _recipe_dir_for_status(status, slug)
+    if not recipe_dir:
+        return jsonify({"error": "Recipe not found"}), 404
+
+    existing = _find_recipe_image(recipe_dir)
+    if not existing:
+        return jsonify({"error": "No image found"}), 404
+
+    try:
+        os.remove(osp.join(recipe_dir, existing))
+        new_md = _rewrite_recipe_image_tag(status, slug, recipe_dir, None)
+        return jsonify({
+            "success": True,
+            "preview_html": _markdown_to_preview_html(new_md, status, slug)
+        })
+    except Exception as e:
+        logger.error("Failed to delete recipe image: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route("/editor/preview", methods=["POST"])
@@ -1062,9 +1571,68 @@ def preview_markdown():
 # Routes — Recipe Import (Gemini)
 # ---------------------------------------------------------------------------
 
+@app.route("/import", methods=["GET"])
+def import_page():
+    """Render the Import Recipe page."""
+    return render_template("import.html", active_page="import", email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
+
+# ---------------------------------------------------------------------------
+# Import jobs — extraction runs in a background thread (it makes several
+# sequential Gemini calls as it retries against validation errors, which can
+# take a while) so the web UI can poll for progress instead of blocking on
+# one long request.
+# ---------------------------------------------------------------------------
+
+IMPORT_JOBS: dict[str, dict] = {}
+IMPORT_JOBS_LOCK = threading.Lock()
+IMPORT_JOB_TTL_SECONDS = 3600
+
+def _prune_import_jobs():
+    """Drop jobs older than IMPORT_JOB_TTL_SECONDS so IMPORT_JOBS doesn't grow unbounded."""
+    cutoff = time.time() - IMPORT_JOB_TTL_SECONDS
+    with IMPORT_JOBS_LOCK:
+        for job_id in [jid for jid, job in IMPORT_JOBS.items() if job["created_at"] < cutoff]:
+            del IMPORT_JOBS[job_id]
+
+def _run_import_job(job_id: str, url: str | None, text: str | None):
+    """Background-thread target: run extract_recipe(), recording progress events and the final outcome on the job."""
+    def on_progress(event: dict):
+        with IMPORT_JOBS_LOCK:
+            job = IMPORT_JOBS.get(job_id)
+            if job is not None:
+                job["events"].append(event)
+
+    try:
+        result = extract_recipe(url=url, text=text, on_progress=on_progress)
+    except Exception as e:
+        logger.error("Import job %s failed: %s", job_id, e)
+        with IMPORT_JOBS_LOCK:
+            job = IMPORT_JOBS.get(job_id)
+            if job is not None:
+                job["status"] = "error"
+                job["error"] = str(e)
+        return
+
+    with IMPORT_JOBS_LOCK:
+        job = IMPORT_JOBS.get(job_id)
+        if job is not None:
+            job["status"] = "done"
+            job["result"] = {
+                "recipe": result.recipe_data.model_dump(mode="json"),
+                "markdown_preview": result.markdown,
+                "slug": result.slug,
+                "source": result.source,
+                "validation_errors": [{"field": e.field, "message": e.message} for e in (result.validation_errors or [])],
+            }
+
 @app.route("/import/extract", methods=["POST"])
 def import_extract():
-    """Extract recipe using Gemini API and return preview."""
+    """Start a background Gemini extraction job and return its job_id; poll /import/status/<job_id> for progress/result."""
+    if not IMPORT_ENABLED:
+        return jsonify({
+            "error": "Recipe import disabled. Set GEMINI_API_KEY environment variable to enable."
+        }), 503
+
     data = request.get_json()
     url = (data.get("url") or "").strip() or None
     text = (data.get("text") or "").strip() or None
@@ -1072,26 +1640,51 @@ def import_extract():
     if not url and not text:
         return jsonify({"error": "Provide a URL or pasted text."}), 400
 
-    try:
-        result = extract_recipe(url=url, text=text)
-    except Exception as e:
-        logger.error("Extraction failed: %s", e)
-        return jsonify({"error": str(e)}), 500
+    _prune_import_jobs()
 
-    session["pending_import"] = {
-        "recipe_data": result.recipe_data.model_dump(mode="json"),
-        "markdown": result.markdown,
-        "slug": result.slug,
-        "source": result.source,
-    }
+    job_id = uuid.uuid4().hex
+    with IMPORT_JOBS_LOCK:
+        IMPORT_JOBS[job_id] = {
+            "status": "running",
+            "events": [],
+            "max_attempts": MAX_RETRIES,
+            "created_at": time.time(),
+        }
 
-    return jsonify({
-        "success": True,
-        "recipe": result.recipe_data.model_dump(mode="json"),
-        "markdown_preview": result.markdown,
-        "slug": result.slug,
-        "source": result.source,
-    })
+    threading.Thread(target=_run_import_job, args=(job_id, url, text), daemon=True).start()
+
+    return jsonify({"success": True, "job_id": job_id, "max_attempts": MAX_RETRIES})
+
+@app.route("/import/status/<job_id>")
+def import_status(job_id):
+    """Poll the progress (and, once finished, result) of a background extraction job started by /import/extract."""
+    with IMPORT_JOBS_LOCK:
+        job = IMPORT_JOBS.get(job_id)
+        if job is None:
+            return jsonify({"error": "Unknown or expired import job"}), 404
+
+        response = {
+            "status": job["status"],
+            "events": job["events"],
+            "max_attempts": job["max_attempts"],
+        }
+        if job["status"] == "done":
+            response["result"] = job["result"]
+        elif job["status"] == "error":
+            response["error"] = job["error"]
+
+    if job["status"] == "done":
+        # Stash for /import/confirm, same as the old synchronous flow.
+        result = job["result"]
+        session["pending_import"] = {
+            "recipe_data": result["recipe"],
+            "markdown": result["markdown_preview"],
+            "slug": result["slug"],
+            "source": result["source"],
+        }
+        session["pending_import_job_id"] = job_id
+
+    return jsonify(response)
 
 @app.route("/import/confirm", methods=["POST"])
 def import_confirm():
@@ -1114,6 +1707,11 @@ def import_confirm():
         return jsonify({"error": str(e)}), 500
 
     session.pop("pending_import", None)
+    job_id = session.pop("pending_import_job_id", None)
+    if job_id:
+        with IMPORT_JOBS_LOCK:
+            IMPORT_JOBS.pop(job_id, None)
+
     return jsonify({"success": True, "slug": result.slug})
 
 # @app.route("/import/extract", methods=["POST"])
@@ -1170,6 +1768,67 @@ def import_confirm():
 #     return jsonify({"success": True, "slug": result.slug})
 
 # ---------------------------------------------------------------------------
+# Routes — Edit Ingredients (foods.yaml registry)
+# ---------------------------------------------------------------------------
+
+@app.route("/ingredients", methods=["GET"])
+def ingredients_page():
+    """Render the Edit Ingredients page."""
+    return render_template(
+        "ingredients.html",
+        active_page="ingredients",
+        email_enabled=EMAIL_ENABLED,
+        import_enabled=IMPORT_ENABLED,
+        categories=[c.value for c in FoodType],
+    )
+
+@app.route("/ingredients/list", methods=["GET"])
+def list_ingredients():
+    """JSON list of every food in the registry, for the Edit Ingredients page."""
+    return jsonify({
+        "success": True,
+        "foods": [f.model_dump(mode="json") for f in list_foods()],
+    })
+
+@app.route("/ingredients", methods=["POST"])
+def create_ingredient():
+    """Add a new food to the registry."""
+    data = request.get_json() or {}
+    try:
+        food = create_food(data)
+    except ValidationError as e:
+        return jsonify({"error": e.errors()[0]["msg"]}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    _invalidate_shopping_list_cache()
+    return jsonify({"success": True, "food": food.model_dump(mode="json")})
+
+@app.route("/ingredients/<name>", methods=["POST"])
+def update_ingredient(name):
+    """Update the food currently named `name` (its primary/first alias)."""
+    data = request.get_json() or {}
+    try:
+        food = update_food(name, data)
+    except KeyError as e:
+        return jsonify({"error": str(e)}), 404
+    except ValidationError as e:
+        return jsonify({"error": e.errors()[0]["msg"]}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    _invalidate_shopping_list_cache()
+    return jsonify({"success": True, "food": food.model_dump(mode="json")})
+
+@app.route("/ingredients/delete/<name>", methods=["POST"])
+def delete_ingredient(name):
+    """Delete the food named `name` (its primary/first alias) from the registry."""
+    try:
+        delete_food(name)
+    except KeyError as e:
+        return jsonify({"error": str(e)}), 404
+    _invalidate_shopping_list_cache()
+    return jsonify({"success": True})
+
+# ---------------------------------------------------------------------------
 # Routes — pending recipes
 # ---------------------------------------------------------------------------
 
@@ -1215,6 +1874,35 @@ def delete_saved(slug):
         return jsonify({"error": str(e)}), 500
     return jsonify({"success": True})
 
+@app.route("/editor/archive/<slug>", methods=["POST"])
+def archive(slug):
+    """Move a recipe (saved or pending) to the archive."""
+    try:
+        archive_recipe(slug, recipes_dir=RECIPES_DIR, pending_dir=PENDING_DIR, archived_dir=ARCHIVED_DIR)
+        _invalidate_shopping_list_cache()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"success": True})
+
+@app.route("/editor/unarchive/<slug>", methods=["POST"])
+def unarchive(slug):
+    """Restore an archived recipe to saved."""
+    try:
+        unarchive_recipe(slug, archived_dir=ARCHIVED_DIR, recipes_dir=RECIPES_DIR)
+        _invalidate_shopping_list_cache()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"success": True})
+
+@app.route("/editor/delete_archived/<slug>", methods=["POST"])
+def delete_archived(slug):
+    """Delete an archived recipe."""
+    try:
+        delete_archived_recipe(slug, archived_dir=ARCHIVED_DIR)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"success": True})
+
 # ---------------------------------------------------------------------------
 # Routes — schedule management
 # ---------------------------------------------------------------------------
@@ -1222,6 +1910,11 @@ def delete_saved(slug):
 @app.route("/schedule/config", methods=["GET"])
 def get_schedule():
     """Get current schedule configuration."""
+    if not EMAIL_ENABLED:
+        return jsonify({
+            "error": "Schedule features disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD to enable."
+        }), 503
+
     config = _get_schedule_config()
 
     # Calculate next send date/time if enabled
@@ -1252,6 +1945,11 @@ def get_schedule():
 @app.route("/schedule/config", methods=["POST"])
 def save_schedule():
     """Save schedule configuration."""
+    if not EMAIL_ENABLED:
+        return jsonify({
+            "error": "Schedule features disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD to enable."
+        }), 503
+
     try:
         data = request.get_json()
         config = {
@@ -1275,6 +1973,11 @@ def save_schedule():
 @app.route("/schedule/send_now", methods=["POST"])
 def send_now():
     """Manually trigger scheduled email."""
+    if not EMAIL_ENABLED:
+        return jsonify({
+            "error": "Email features disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD to enable."
+        }), 503
+
     try:
         send_scheduled_shopping_list()
         return jsonify({"success": True, "message": "Email sent successfully"})
@@ -1333,6 +2036,10 @@ if __name__ == "__main__":
     _reschedule_email_job()
 
     try:
-        app.run(host="0.0.0.0", port=5000, debug=True)
+        app.run(
+            host=os.environ.get("RECIPES_HOST", "0.0.0.0"),
+            port=int(os.environ.get("RECIPES_PORT", "5000")),
+            debug=os.environ.get("RECIPES_DEBUG", "1") == "1",
+        )
     finally:
         scheduler.shutdown()
