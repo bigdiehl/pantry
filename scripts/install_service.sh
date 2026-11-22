@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Install Pantry as a systemd service on this machine, plus a timer that
-# auto-deploys new commits (see scripts/auto_update.sh).
+# auto-deploys new commits (scripts/auto_update.sh) and one that backs up recipe
+# edits to the data repo (scripts/backup_data.sh).
 # Run as the user who should own the service (not root). Safe to re-run.
 #
 #   scripts/install_service.sh [--port 5000] [--data-dir DIR] [--data-repo URL] [--update-interval 5min]
+#                              [--backup-schedule 'Sun 03:00']
 #
 # Recipe data comes from the diehl_recipes repo, cloned next to this one by default.
 
@@ -16,6 +18,7 @@ ENV_FILE=/etc/pantry.env
 LEGACY_ENV_FILES=(/etc/recipes_app.env)
 LEGACY_UNITS=(web_app frank_web_server recipes)
 UPDATE_INTERVAL=5min
+BACKUP_SCHEDULE='Sun 03:00'   # systemd OnCalendar
 UNIT_DIR=/etc/systemd/system
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_USER="$(id -un)"
@@ -27,6 +30,7 @@ while [[ $# -gt 0 ]]; do
         --data-dir) DATA_DIR="$2"; shift 2 ;;
         --data-repo) DATA_REPO="$2"; shift 2 ;;
         --update-interval) UPDATE_INTERVAL="$2"; shift 2 ;;
+        --backup-schedule) BACKUP_SCHEDULE="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -151,6 +155,30 @@ OnUnitActiveSec=${UPDATE_INTERVAL}
 WantedBy=timers.target
 EOF
 
+sudo tee "${UNIT_DIR}/${SERVICE}-backup.service" >/dev/null <<EOF
+[Unit]
+Description=Commit and push recipe edits to the data repo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=${RUN_USER}
+ExecStart=${REPO_DIR}/scripts/backup_data.sh --data-dir ${DATA_DIR}
+EOF
+
+sudo tee "${UNIT_DIR}/${SERVICE}-backup.timer" >/dev/null <<EOF
+[Unit]
+Description=Back up recipe edits (${BACKUP_SCHEDULE})
+
+[Timer]
+OnCalendar=${BACKUP_SCHEDULE}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 # Retire older hand-installed units.
 for unit in "${LEGACY_UNITS[@]}"; do
     [[ "$unit" == "$SERVICE" ]] && continue
@@ -164,6 +192,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE" >/dev/null
 sudo systemctl restart "$SERVICE"
 sudo systemctl enable --now "${SERVICE}-update.timer" >/dev/null
+sudo systemctl enable --now "${SERVICE}-backup.timer" >/dev/null
 
 step "Health check"
 PORT="$(sudo sed -n 's/^RECIPES_PORT=//p' "$ENV_FILE" | tail -1)"
@@ -173,6 +202,7 @@ for _ in $(seq 1 20); do
         echo "Running at http://$(hostname):${PORT}/"
         echo "Logs:        journalctl -u ${SERVICE} -f"
         echo "Deploy logs: journalctl -u ${SERVICE}-update"
+        echo "Backup logs: journalctl -u ${SERVICE}-backup"
         echo "For phone install (needs HTTPS): scripts/setup_tailscale.sh"
         exit 0
     fi
