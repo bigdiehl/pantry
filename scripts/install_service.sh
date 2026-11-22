@@ -80,7 +80,12 @@ for legacy in "${LEGACY_ENV_FILES[@]}"; do
     fi
 done
 if sudo test -f "$ENV_FILE"; then
-    echo "Exists, leaving it alone."
+    # systemd EnvironmentFile ignores "export KEY=..." lines; strip the prefix.
+    if sudo grep -q '^export ' "$ENV_FILE"; then
+        echo "Stripping 'export ' prefixes (systemd ignores those lines)."
+        sudo sed -i 's/^export //' "$ENV_FILE"
+    fi
+    echo "Exists."
 else
     SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
     sudo tee "$ENV_FILE" >/dev/null <<EOF
@@ -130,7 +135,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-Environment=PATH=${UV_DIR}:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${UV_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=${REPO_DIR}/scripts/auto_update.sh --user ${RUN_USER} --repo ${REPO_DIR} --data-dir ${DATA_DIR} --service ${SERVICE} --port ${PORT}
 EOF
 
