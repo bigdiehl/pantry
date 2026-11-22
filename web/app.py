@@ -101,10 +101,13 @@ def _load_state() -> dict:
     return {}
 
 def _save_state(state: dict):
-    """Write state dict to JSON file."""
+    """Write state dict to JSON file atomically (temp file + rename), so concurrent
+    writers or a crash mid-write can't leave a truncated or interleaved file."""
     os.makedirs(osp.dirname(STATE_FILE), exist_ok=True)
-    with open(STATE_FILE, "w") as f:
+    tmp = f"{STATE_FILE}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
+    os.replace(tmp, STATE_FILE)
 
 # ---------------------------------------------------------------------------
 # Recipe store — filesystem + state file
