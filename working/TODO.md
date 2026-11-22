@@ -2,11 +2,6 @@
 
 ## Ideas to decide (not started)
 
-- [ ] **WYSIWYG recipe editor** instead of editing markdown. The editor currently has two
-      markdown textareas (Ingredients, Instructions) plus a separate Preview view. Options:
-      a rich-text editor (e.g. Toast UI, Milkdown, TipTap) that still saves markdown, or
-      structured fields (ingredient rows, numbered step rows) that generate markdown.
-      Must keep `recipe.md` as the stored format and work well on a phone.
 - [ ] **Bring back "pending" on the Recipes page?** The redesign removed the Pending tab
       from Recipes; pending recipes are only visible in Manage > Edit recipes. Decide
       whether Recipes should show them (read-only, or with an Approve button) or whether
@@ -15,7 +10,7 @@
 ## High Priority
 
 ### Server (frank) / Phone
-- [ ] Re-run `scripts/install_service.sh` on frank (fixes updater PATH, adds backup timer)
+- [x] App installed on phone via Tailscale HTTPS (2026-11-22)
 - [ ] Turn on notifications on the phone (Manage > Weekly plan), send a test
 - [ ] Verify offline on the phone: list, recipes, photos
 - [ ] Remove old `~/samba_share/recipes_app` and `/etc/recipes_app.env` on frank
@@ -61,6 +56,8 @@
 
 ## Completed
 
+- [x] WYSIWYG recipe editor, import review with edit/AI changes, Add to recipes (2026-11-22)
+- [x] Fixed: imported recipe.yaml unreadable (python tags); mixed-number quantities parsed wrong (2026-11-22)
 - [x] UI redesign: tab navigation, list/recipe/editor views, blue theme, offline fonts (2026-11-22)
 - [x] Recipe chat with voice input; photo import (2026-11-22)
 - [x] Weekly plan page with push notifications; weekly data backup job (2026-11-22)

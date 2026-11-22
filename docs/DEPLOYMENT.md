@@ -74,7 +74,7 @@ journalctl -u pantry-backup -n 20
 `tailscale serve --bg 5000`, which proxies `https://frank.<tailnet>.ts.net` to the app
 with a real certificate. Requires MagicDNS and HTTPS Certificates enabled in the
 Tailscale admin console. HTTPS is what makes the PWA, offline mode, microphone, and
-push work (see [PWA.md](PWA.md)).
+push work (see [PWA.md](PWA.md)). Step-by-step phone setup: [PHONE_SETUP.md](PHONE_SETUP.md).
 
 ## Environment
 

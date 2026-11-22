@@ -12,6 +12,7 @@ How Pantry is designed and why. For running it, see the root `README.md`.
 | [WEEKLY_PLAN.md](WEEKLY_PLAN.md) | Scheduled auto-pick, reminders, email |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Server (frank), systemd units, auto-deploy, Tailscale, env vars |
 | [API.md](API.md) | Route reference |
+| [PHONE_SETUP.md](PHONE_SETUP.md) | Tailscale and installing the app on a phone (step by step) |
 
 Project tracking lives in `working/TODO.md` and `working/NOTES.md`.
 

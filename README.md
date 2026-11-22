@@ -31,6 +31,8 @@ Tests: `uv run pytest`. CI runs them on every push.
 
 Install as a service (systemd + auto-deploy timer + HTTPS for phone): `scripts/install_service.sh`, then `scripts/setup_tailscale.sh`.
 
+Phone install: [`docs/PHONE_SETUP.md`](docs/PHONE_SETUP.md).
+
 Deployment details: `docs/DEPLOYMENT.md`.
 
 ## Features
