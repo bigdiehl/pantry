@@ -2,21 +2,17 @@
 
 ## High Priority
 
-### PWA on Phone
-- [ ] Run `scripts/install_service.sh` on server
-- [ ] Enable MagicDNS + HTTPS certs in Tailscale admin, run `scripts/setup_tailscale.sh`
-- [ ] Install from `https://<host>.<tailnet>.ts.net` on Android/iOS
+### Server (frank.local) / PWA on Phone
+- [ ] Clone pantry + diehl_recipes on frank, run `scripts/install_service.sh` (retires frank_web_server.service)
+- [ ] Install Tailscale on frank, run `scripts/setup_tailscale.sh` (MagicDNS + HTTPS certs on in admin console)
+- [ ] Install from `https://frank.<tailnet>.ts.net` on phone
 - [ ] Verify offline: shopping list, recipe list, recipe content, images
 - [ ] Fix Lighthouse items: color contrast, heading order, meta description
+- [ ] Decide how web-UI recipe edits on frank get committed to diehl_recipes
 
 ### Repo Split / Git
-- [ ] Create `bigdiehl/diehl_recipes` on GitHub, push `~/projects/diehl_recipes`
-- [ ] Force-push rewritten `dev` and `master` here (purges data/ from GitHub)
-- [ ] Re-clone any other checkouts of this repo (old history)
-- [ ] Delete `~/projects/recipes_backup_20261010.tar.gz` once confirmed
-- [ ] Clean up data repo: stray `recipes/saved/saved/`, empty `in_progress/`
-- [ ] Delete or gitignore `lighthouse_report.json`
-- [ ] Commit the uncommitted batch (split: importer/editor, PWA + service)
+- [ ] Delete `~/projects/recipes_prefilter_20261122.bundle` and `~/projects/recipes_git_backup_20261122` once confirmed
+- [ ] Remove old `/srv/samba_share/recipes_app` on frank once pantry is running
 
 ### Shopping List
 - [x] Interactive list on `/` with real data + localStorage
@@ -64,6 +60,9 @@
 
 ## Completed
 
+- [x] Purged recipe data from history, consolidated on master, renamed repo to pantry (2026-11-22)
+- [x] diehl_recipes pushed to GitHub (2026-11-22)
+- [x] pytest suite, GitHub Actions CI, auto-deploy timer (2026-11-22)
 - [x] PWA manifest, service worker, icons; SW scope/caching fixes (2026-10-10)
 - [x] Service install scripts (2026-10-10)
 - [x] Recipe data split to diehl_recipes repo (2026-10-10)

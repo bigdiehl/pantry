@@ -29,7 +29,7 @@ Last review: 2026-10-10. Consolidates the former `OPTIONAL_ENV_VARS.md` and `PWA
 
 **Security:** `app.run(debug=True)` on `0.0.0.0` exposed the Werkzeug debugger (remote code execution) to the LAN. Now controlled by `RECIPES_DEBUG`; installer sets 0.
 
-**Data repo split:** `data/` moved to `~/projects/diehl_recipes` and purged from local history of this repo. Backup of pre-rewrite repo: `~/projects/recipes_backup_20261010.tar.gz`. GitHub (`origin`) still has the old history until force-pushed.
+**Data repo split:** `data/` moved to `~/projects/diehl_recipes` (github: bigdiehl/diehl_recipes). All recipe data purged from this repo's history with git-filter-repo and force-pushed (2026-11-22). Pre-rewrite backups: `~/projects/recipes_prefilter_20261122.bundle`, `~/projects/recipes_git_backup_20261122`.
 
 **Data cleanup needed (in diehl_recipes):**
 - `recipes/saved/saved/dinner/honey_lime_enchiladas/` is a stray nested dir; original location shows deleted. Probably meant for `archived/`.

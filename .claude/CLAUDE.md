@@ -1,4 +1,4 @@
-# Recipe Management Application
+# Pantry
 
 Personal recipe management web app: browse recipes, generate shopping lists, schedule weekly emails, import recipes via Gemini AI.
 
@@ -11,11 +11,16 @@ Personal recipe management web app: browse recipes, generate shopping lists, sch
 - `web/` - Flask app, templates, static files, routes
 - Recipe data lives in a separate repo, `../diehl_recipes` (override: `RECIPES_DATA_DIR`):
   `recipes/saved/` (breakfast/, dinner/, sides/), `recipes/pending/`, `recipes/archived/`
-- `scripts/` - Service install, Tailscale HTTPS, icon generation
+- `scripts/` - Service install, auto-update, Tailscale HTTPS, icon generation
+- `tests/` - pytest suite (fixtures from recipe_core/test)
 - `doc/` - Permanent documentation
 - `working/` - Project TODOs and notes
 
 **Run:** `uv run web/app.py` (localhost:5000)
+
+**Test:** `uv run pytest` (tests/; CI in .github/workflows/ci.yml)
+
+**Server:** `frank.local` (Debian, ssh). `pantry.service` + `pantry-update.timer` (auto-deploy on push, see doc/SETUP.md)
 
 **Env vars:** GMAIL_SENDER, GMAIL_APP_PASSWORD, GEMINI_API_KEY
 
@@ -30,7 +35,7 @@ Each recipe is a directory containing:
 ```yaml
 ingredients:
   - food: chicken breast  # Must match foods.py
-    quantity: 2 lbs       # Pint format or "-" for unspecified
+    quantity: 2 lbs       # Pint format; omit for unspecified
 ```
 
 **State:** `web/instance/state.json` tracks selection, last_used_date, weeks_since_last

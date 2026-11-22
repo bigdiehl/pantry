@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-cd recipes
+cd pantry
 uv sync
 git clone git@github.com:bigdiehl/diehl_recipes.git ../diehl_recipes
 ```
@@ -49,9 +49,9 @@ export FLASK_SECRET_KEY="random-secret"  # Defaults to "dev-secret-change-me"
 ## Production (systemd)
 
 ```bash
-scripts/install_service.sh          # deps, uv sync, /etc/recipes_app.env, recipes.service
-sudo nano /etc/recipes_app.env      # add GMAIL_* / GEMINI_API_KEY
-sudo systemctl restart recipes
+scripts/install_service.sh          # deps, uv sync, /etc/pantry.env, pantry.service, pantry-update.timer
+sudo nano /etc/pantry.env           # add GMAIL_* / GEMINI_API_KEY
+sudo systemctl restart pantry
 scripts/setup_tailscale.sh          # HTTPS URL for phone/PWA install
 ```
 
@@ -62,7 +62,24 @@ scripts/setup_tailscale.sh          # HTTPS URL for phone/PWA install
 | `RECIPES_DEBUG` | 1 | Flask debugger/reloader. Installer sets 0 |
 | `FLASK_SECRET_KEY` | dev value | Installer generates one |
 
-Re-running the installer is safe. Remove with `scripts/uninstall_service.sh`.
+Re-running the installer is safe. It migrates `/etc/recipes_app.env` and disables old units (`frank_web_server`, `web_app`, `recipes`). Remove with `scripts/uninstall_service.sh`.
+
+## Auto-deploy
+
+`pantry-update.timer` runs `scripts/auto_update.sh` every 5 min (`--update-interval` to change):
+
+| Change | Action |
+|--------|--------|
+| New commit on app branch | Fast-forward, `uv sync`, `pytest`. Pass: restart. Fail: roll back, skip that commit |
+| New commit in diehl_recipes | `pull --ff-only`, restart |
+| Local edits block a fast-forward | Skip, log warning |
+
+```bash
+sudo systemctl start pantry-update     # deploy now
+journalctl -u pantry-update -n 30      # deploy log
+```
+
+Recipe edits made in the web UI on the server are not committed back. Commit them in diehl_recipes on the server, or data pulls stop fast-forwarding.
 
 ## Troubleshooting
 
@@ -73,5 +90,5 @@ uv run python scripts/list_gemini_models.py --recommended
 
 **Check logs:**
 ```bash
-journalctl -u recipes -f
+journalctl -u pantry -f
 ```

@@ -1,6 +1,6 @@
 # Utility Scripts
 
-This directory contains utility scripts for managing the recipe application.
+This directory contains utility scripts for managing Pantry.
 
 ## list_gemini_models.py
 
@@ -38,14 +38,7 @@ If you need to change the model used by the recipe importer, edit the `GEMINI_MO
 
 | Script | Purpose |
 |--------|---------|
-| `install_service.sh [--port N]` | Install deps, create `/etc/recipes_app.env`, install and start `recipes.service`. Idempotent. |
+| `install_service.sh [--port N] [--update-interval 5min]` | Install deps, create `/etc/pantry.env`, install and start `pantry.service` + `pantry-update.timer`. Idempotent. |
+| `auto_update.sh` | Run by the timer: pull app + data repos, test, restart. See `doc/SETUP.md`. |
 | `setup_tailscale.sh [--port N]` | Serve the app at `https://<host>.<tailnet>.ts.net` (required for PWA install). |
-| `uninstall_service.sh` | Stop and remove the service. Keeps env file and data. |
-
-## Service install
-
-| Script | Purpose |
-|--------|---------|
-| `install_service.sh [--port N]` | Install deps, create `/etc/recipes_app.env`, install and start `recipes.service`. Idempotent. |
-| `setup_tailscale.sh [--port N]` | Serve the app at `https://<host>.<tailnet>.ts.net` (required for PWA install). |
-| `uninstall_service.sh` | Stop and remove the service. Keeps env file and data. |
+| `uninstall_service.sh` | Stop and remove the service and timer. Keeps env file and data. |

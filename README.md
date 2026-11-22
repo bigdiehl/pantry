@@ -1,4 +1,6 @@
-# Recipe Management App
+# Pantry
+
+[![CI](https://github.com/bigdiehl/pantry/actions/workflows/ci.yml/badge.svg)](https://github.com/bigdiehl/pantry/actions/workflows/ci.yml)
 
 Personal web app for managing recipes, generating shopping lists, and scheduling weekly meal planning emails.
 
@@ -25,7 +27,9 @@ export GMAIL_APP_PASSWORD="your-app-password"
 export GEMINI_API_KEY="your-key"
 ```
 
-Install as a service (systemd + HTTPS for phone): `scripts/install_service.sh`, then `scripts/setup_tailscale.sh`.
+Tests: `uv run pytest`. CI runs them on every push.
+
+Install as a service (systemd + auto-deploy timer + HTTPS for phone): `scripts/install_service.sh`, then `scripts/setup_tailscale.sh`.
 
 See `doc/SETUP.md` for detailed setup instructions.
 
@@ -35,7 +39,7 @@ See `doc/SETUP.md` for detailed setup instructions.
 - **Shopping Lists:** Auto-merge ingredients, sum quantities, email/download PDF
 - **Scheduling:** Weekly automated shopping list emails
 - **PWA:** Install on phone, works offline
-- **Interactive List:** Demo of mobile shopping list with checkboxes
+- **Auto-deploy:** Server pulls, tests, and restarts on new commits
 
 ## Documentation
 
