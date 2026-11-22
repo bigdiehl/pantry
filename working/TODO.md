@@ -2,32 +2,31 @@
 
 ## High Priority
 
-### PWA for Phone
-- [x] Basic PWA setup (manifest, service worker, icons)
-- [ ] Test PWA install on phone
-- [ ] Verify offline mode works reliably
-- [ ] Test shopping list caching on mobile
+### PWA on Phone
+- [ ] Run `scripts/install_service.sh` on server
+- [ ] Enable MagicDNS + HTTPS certs in Tailscale admin, run `scripts/setup_tailscale.sh`
+- [ ] Install from `https://<host>.<tailnet>.ts.net` on Android/iOS
+- [ ] Verify offline: shopping list, recipe list, recipe content, images
+- [ ] Fix Lighthouse items: color contrast, heading order, meta description
 
-### Remote Access
-- [ ] Decision: Tailscale vs Cloudflare Tunnel vs other
-- [ ] Setup chosen solution
-- [ ] Test HTTPS for PWA requirements
-- [ ] Document access method
+### Repo Split / Git
+- [ ] Create `bigdiehl/diehl_recipes` on GitHub, push `~/projects/diehl_recipes`
+- [ ] Force-push rewritten `dev` and `master` here (purges data/ from GitHub)
+- [ ] Re-clone any other checkouts of this repo (old history)
+- [ ] Delete `~/projects/recipes_backup_20261010.tar.gz` once confirmed
+- [ ] Clean up data repo: stray `recipes/saved/saved/`, empty `in_progress/`
+- [ ] Delete or gitignore `lighthouse_report.json`
+- [ ] Commit the uncommitted batch (split: importer/editor, PWA + service)
 
-### Interactive Shopping List
-- [x] Demo prototype built (shopping_demo.html)
-- [ ] Integrate with real shopping list API
-- [ ] Add localStorage persistence
-- [ ] Offline change queueing + sync when online
+### Shopping List
+- [x] Interactive list on `/` with real data + localStorage
+- [ ] Offline recipe selection changes (queue + sync)
+- [ ] Email/PDF/schedule UI on main page (still only on `/archive/shopping_list`)
 - [ ] Mobile usability testing
 
-### Recipe Import Verification
-- [ ] Add validation step after Gemini extraction
-- [ ] Check required fields present (name, ingredients, instructions)
-- [ ] Validate ingredient format (food name + quantity)
-- [ ] Feed validation errors back to Gemini for retry
-- [ ] Limit retry attempts (3 max?)
-- [ ] Preview/edit before saving to pending/
+### Recipe Import
+- [x] Validation + retry with Gemini feedback (3 max), preview, progress UI
+- [ ] Test on real URLs, including retry path
 
 ## Medium Priority
 
@@ -65,11 +64,9 @@
 
 ## Completed
 
-- [x] PWA manifest and service worker
-- [x] App icons generated
-- [x] Shopping demo prototype
-- [x] Recipe editor with YAML + markdown
-- [x] Gemini-based recipe import
-- [x] Scheduled weekly emails
-- [x] PDF generation and email
+- [x] PWA manifest, service worker, icons; SW scope/caching fixes (2026-10-10)
+- [x] Service install scripts (2026-10-10)
+- [x] Recipe data split to diehl_recipes repo (2026-10-10)
+- [x] Recipe editor, Gemini import with validation, ingredient editor
+- [x] Scheduled weekly emails, PDF generation
 - [x] Recipe selection tracking

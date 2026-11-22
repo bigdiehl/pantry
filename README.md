@@ -5,18 +5,27 @@ Personal web app for managing recipes, generating shopping lists, and scheduling
 ## Setup
 
 ```bash
-# Install dependencies
+# Install dependencies; recipe data is a separate repo cloned alongside
 uv sync
+git clone git@github.com:bigdiehl/diehl_recipes.git ../diehl_recipes
 
-# Set environment variables
-export GMAIL_SENDER="your@gmail.com"
-export GMAIL_APP_PASSWORD="your-app-password"
-export GEMINI_API_KEY="your-key"
-
-# Run
+# Run (all features work without env vars, some are disabled)
 uv run web/app.py
 # Access at http://localhost:5000
 ```
+
+**Optional: Enable email and import features**
+
+```bash
+# For email features (shopping list emails, scheduling)
+export GMAIL_SENDER="your@gmail.com"
+export GMAIL_APP_PASSWORD="your-app-password"
+
+# For recipe import from URLs
+export GEMINI_API_KEY="your-key"
+```
+
+Install as a service (systemd + HTTPS for phone): `scripts/install_service.sh`, then `scripts/setup_tailscale.sh`.
 
 See `doc/SETUP.md` for detailed setup instructions.
 
@@ -41,25 +50,7 @@ See `doc/SETUP.md` for detailed setup instructions.
 
 ## Project Status
 
-**Working:**
-- Recipe browsing and selection
-- Shopping list generation and merging
-- PDF export and email
-- Weekly scheduling
-- Recipe editor (YAML + markdown)
-- Gemini-based recipe import
-- Basic PWA (offline browsing)
-
-**In Progress:**
-- PWA testing on mobile
-- Remote access setup (Tailscale/Cloudflare)
-- Interactive shopping list integration
-- Import verification with retry
-
-**Known Issues:**
-- Some recipes need fixing (see working/NOTES.md)
-- Import needs validation step
-- Shopping list demo not integrated with real data
+See `working/TODO.md` and `working/NOTES.md`.
 
 ## Tech Stack
 

@@ -9,8 +9,9 @@ Personal recipe management web app: browse recipes, generate shopping lists, sch
 **Structure:**
 - `recipe_core/` - Core logic (models, shopping list, foods, units, importer, mailer)
 - `web/` - Flask app, templates, static files, routes
-- `data/recipes/saved/` - Active recipes (breakfast/, dinner/, sides/)
-- `data/recipes/pending/` - Imported recipes awaiting approval
+- Recipe data lives in a separate repo, `../diehl_recipes` (override: `RECIPES_DATA_DIR`):
+  `recipes/saved/` (breakfast/, dinner/, sides/), `recipes/pending/`, `recipes/archived/`
+- `scripts/` - Service install, Tailscale HTTPS, icon generation
 - `doc/` - Permanent documentation
 - `working/` - Project TODOs and notes
 
@@ -42,13 +43,15 @@ ingredients:
 
 **Import:** Gemini API extracts recipes from URLs/text → preview → save to pending/ → edit → promote to saved/
 
-**PWA:** Service worker enables offline browsing, install to home screen
+**PWA:** Service worker served at `/service-worker.js` (scope `/`). Requires HTTPS off localhost (Tailscale serve)
 
-**Interactive List Demo:** /shopping_demo - checkboxes, add/remove items, offline support
+**Shopping List (main, at `/`):** Interactive table built from selected recipes - sortable by name/category, checkboxes, add/remove items, offline support via localStorage. Supersedes the archived pages below (no email/PDF/schedule UI yet - those remain on the archived shopping list page).
+
+**Archived pages:** `/archive/shopping_list` (previous main page: markdown list + email/PDF/weekly schedule UI), `/archive/shopping_demo` (earlier prototype using fake demo data)
 
 ## Web Routes
 
-**Pages:** `/` (home), `/recipes_list` (browse), `/editor` (edit/import), `/shopping_demo`
+**Pages:** `/` (home/shopping list), `/recipes_list` (browse), `/editor` (edit/import), `/archive/shopping_list`, `/archive/shopping_demo`
 
 **API:**
 - Recipe selection: `POST /recipes_list/toggle/<slug>`, `POST /deselect/<slug>`
@@ -70,10 +73,9 @@ Incompatible units separate: "2 cans + 1 cup"
 **Broken recipes:** moraccan_chickpea_and_apricot_tagine, gnocchi_bake, firehouse_mac_n_cheese
 
 **TODO (see working/TODO.md):**
-- Test PWA on phone
-- Setup remote access (Tailscale or Cloudflare Tunnel)
-- Integrate interactive shopping list with real data
-- Add import verification (validate + retry with Gemini feedback)
+- Install service + Tailscale HTTPS, test PWA on phone
+- Push diehl_recipes; force-push purged history here
+- Test importer on real URLs
 
 ## Documentation
 

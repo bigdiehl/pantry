@@ -5,16 +5,18 @@
 - Python 3.11+ / Flask
 - pint (units), pydantic (validation), google-genai (import), weasyprint (PDF)
 - APScheduler for weekly emails
-- Deployed via systemd on localhost:5000
+- Deployed via systemd (`scripts/install_service.sh`) on port 5000
 
 ## Structure
 
 ```
 recipe_core/         Core logic (models, shopping list, foods, units, importer)
 web/                 Flask app, routes, templates, static files
-data/recipes/
+../diehl_recipes/    Separate data repo (RECIPES_DATA_DIR)
+recipes/
   ├── saved/         Active recipes
-  └── pending/       Imported, awaiting approval
+  ├── pending/       Imported, awaiting approval
+  └── archived/      Retired recipes, kept but out of rotation
 ```
 
 ## Data Storage
