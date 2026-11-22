@@ -34,6 +34,7 @@ from recipe_core.mailer import build_message, send_email
 from recipe_core.gemini_importer import extract_recipe, ImportResult, MAX_RETRIES
 from recipe_core.recipe_chat import ChatReply, build_catalog, chat as recipe_chat, make_client
 from recipe_core.recipe_search import search_recipes
+from recipe_core.recipe_revise import revise_recipe
 from recipe_core.push import PushStore
 
 logger = logging.getLogger(__name__)
@@ -926,7 +927,10 @@ def save_pending(result: ImportResult, pending_dir: str = PENDING_DIR):
     # Save YAML
     yaml_path = osp.join(recipe_dir, "recipe.yaml")
     with open(yaml_path, "w") as f:
-        yaml.dump(result.recipe_data.model_dump(mode="python", exclude_none=True), f, default_flow_style=False)
+        # mode="json" turns enums into plain strings; mode="python" wrote !!python/object
+        # tags that yaml.safe_load (used everywhere else) refuses to read.
+        yaml.safe_dump(result.recipe_data.model_dump(mode="json", exclude_none=True), f,
+                       default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     # Save Markdown
     md_path = osp.join(recipe_dir, "recipe.md")
@@ -1457,37 +1461,25 @@ def load_recipe(status, slug):
         "preview_html": _markdown_to_preview_html(md_content, status, slug) if md_content else ""
     })
 
-@app.route("/editor/recipe/<status>/<slug>", methods=["POST"])
-def save_recipe(status, slug):
-    """Save a recipe's metadata (recipe.yaml) and content (recipe.md)."""
-    if status not in ("saved", "pending", "archived"):
-        return jsonify({"error": "Invalid status"}), 400
-
-    recipe_dir = _recipe_dir_for_status(status, slug)
-    if not recipe_dir:
-        return jsonify({"error": "Recipe not found"}), 404
-
-    data = request.get_json() or {}
-
+def _validate_recipe_form(data: dict) -> tuple[dict | None, str | None]:
+    """Recipe form state (editor, import review) -> (recipe.yaml dict, error message)."""
     name = (data.get("name") or "").strip()
     if not name:
-        return jsonify({"error": "Name is required"}), 400
-
+        return None, "Name is required"
     try:
-        servings = int(data.get("servings", 1))
-        min_period_weeks = int(data.get("min_period_weeks", 4))
+        servings = int(data.get("servings") or 1)
+        min_period_weeks = int(data.get("min_period_weeks", 4) or 0)
         if servings < 0 or min_period_weeks < 0:
             raise ValueError
     except (TypeError, ValueError):
-        return jsonify({"error": "Servings and min period weeks must be non-negative numbers"}), 400
+        return None, "Servings and repeat weeks must be non-negative numbers"
 
     category = str(data.get("category", "")).upper()
     if category not in (c.value for c in CategoryType):
-        return jsonify({"error": f"Invalid category: {category}"}), 400
-
+        return None, f"Invalid category: {category}"
     meal = str(data.get("meal", "")).upper()
     if meal not in (m.value for m in MealType):
-        return jsonify({"error": f"Invalid meal: {meal}"}), 400
+        return None, f"Invalid meal: {meal}"
 
     ingredients = []
     for row in data.get("ingredients", []):
@@ -1500,10 +1492,10 @@ def save_recipe(status, slug):
         try:
             parse_quantity(quantity)
         except ValueError as e:
-            return jsonify({"error": f"Ingredient '{food}': {e}"}), 400
+            return None, f"Ingredient '{food}': {e}"
         ingredients.append({"food": food, "quantity": quantity})
 
-    yaml_data = {
+    return {
         "name": name,
         "servings": servings,
         "category": category,
@@ -1511,42 +1503,54 @@ def save_recipe(status, slug):
         "enabled": bool(data.get("enabled", True)),
         "min_period_weeks": min_period_weeks,
         "ingredients": ingredients,
-    }
+    }, None
 
+def _write_recipe(recipe_dir: str, yaml_data: dict, ingredients_md: str, instructions_md: str) -> str:
+    """Write recipe.yaml and a regenerated recipe.md. Returns the markdown."""
+    os.makedirs(recipe_dir, exist_ok=True)
+    with open(osp.join(recipe_dir, "recipe.yaml"), "w") as f:
+        yaml.safe_dump(yaml_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    # Keep the current image width; it's managed by the dedicated width control.
+    md_path = osp.join(recipe_dir, "recipe.md")
+    width = DEFAULT_IMAGE_WIDTH
+    if osp.exists(md_path):
+        with open(md_path) as f:
+            width = _extract_image_width(f.read())
+    md_content = _render_recipe_markdown(
+        yaml_data["name"], yaml_data["servings"], _find_recipe_image(recipe_dir),
+        ingredients_md or "", instructions_md or "", image_width=width)
+    with open(md_path, "w") as f:
+        f.write(md_content)
+    return md_content
+
+@app.route("/editor/recipe/<status>/<slug>", methods=["POST"])
+def save_recipe(status, slug):
+    """Save a recipe's metadata (recipe.yaml) and content (recipe.md)."""
+    if status not in ("saved", "pending", "archived"):
+        return jsonify({"error": "Invalid status"}), 400
+    recipe_dir = _recipe_dir_for_status(status, slug)
+    if not recipe_dir:
+        return jsonify({"error": "Recipe not found"}), 404
+
+    data = request.get_json() or {}
+    yaml_data, error = _validate_recipe_form(data)
+    if error:
+        return jsonify({"error": error}), 400
     try:
-        yaml_path = osp.join(recipe_dir, "recipe.yaml")
-        with open(yaml_path, "w") as f:
-            yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-        # Preserve the current image width — it's managed by the dedicated
-        # width control, not the Recipe Details form.
-        md_path = osp.join(recipe_dir, "recipe.md")
-        current_width = DEFAULT_IMAGE_WIDTH
-        if osp.exists(md_path):
-            with open(md_path) as f:
-                current_width = _extract_image_width(f.read())
-
-        image_filename = _find_recipe_image(recipe_dir)
-        md_content = _render_recipe_markdown(
-            name, servings, image_filename,
-            data.get("ingredients_md", ""), data.get("instructions_md", ""),
-            image_width=current_width
-        )
-        with open(md_path, "w") as f:
-            f.write(md_content)
-
-        if status == "saved":
-            _invalidate_shopping_list_cache()
-
-        return jsonify({
-            "success": True,
-            "message": "Recipe saved successfully",
-            "preview_html": _markdown_to_preview_html(md_content, status, slug)
-        })
-
+        md_content = _write_recipe(recipe_dir, yaml_data, data.get("ingredients_md", ""),
+                                   data.get("instructions_md", ""))
     except Exception as e:
         logger.error("Failed to save recipe: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+    if status == "saved":
+        _invalidate_shopping_list_cache()
+    return jsonify({
+        "success": True,
+        "message": "Recipe saved successfully",
+        "preview_html": _markdown_to_preview_html(md_content, status, slug)
+    })
 
 @app.route("/editor/recipe/<status>/<slug>/image", methods=["POST"])
 def upload_recipe_image(status, slug):
@@ -1707,6 +1711,53 @@ def _prune_import_jobs():
         for job_id in [jid for jid, job in IMPORT_JOBS.items() if job["created_at"] < cutoff]:
             del IMPORT_JOBS[job_id]
 
+_MD_IMAGE_RE = re.compile(r'<img\b[^>]*\bsrc=["\']([^"\']+)["\']|!\[[^\]]*\]\(([^)\s]+)', re.IGNORECASE)
+
+def _draft_from_import(result: ImportResult) -> dict:
+    """Imported recipe -> the recipe form state used by the editor and import review."""
+    data = result.recipe_data.model_dump(mode="json")
+    ingredients_md, instructions_md, _ = _split_recipe_markdown(result.markdown)
+    m = _MD_IMAGE_RE.search(result.markdown or "")
+    image_url = (m.group(1) or m.group(2)) if m else None
+    return {
+        "name": data["name"], "servings": data["servings"], "category": data["category"],
+        "meal": data["meal"], "enabled": data.get("enabled", True),
+        "min_period_weeks": data.get("min_period_weeks", 4),
+        "ingredients": [{"food": i["food"], "quantity": i.get("quantity", "")} for i in data["ingredients"]],
+        "ingredients_md": ingredients_md, "instructions_md": instructions_md,
+        "image_url": image_url if image_url and image_url.startswith(("http://", "https://")) else None,
+        "source": result.source,
+    }
+
+def _download_recipe_image(url: str, recipe_dir: str) -> str | None:
+    """Save a recipe page's photo as image.<ext>. Best effort: None on any failure."""
+    try:
+        import requests as _requests
+        res = _requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0 (Pantry recipe import)"})
+        ctype = res.headers.get("Content-Type", "").split(";")[0].strip()
+        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}.get(ctype)
+        if res.status_code != 200 or not ext or len(res.content) > 15_000_000:
+            return None
+        name = f"image{ext}"
+        with open(osp.join(recipe_dir, name), "wb") as f:
+            f.write(res.content)
+        return name
+    except Exception as e:
+        logger.info("Could not download recipe image %s: %s", url[:80], e)
+        return None
+
+def _saved_subdir(yaml_data: dict) -> str:
+    """Folder under saved/ for a new recipe, matching the existing layout."""
+    if yaml_data["meal"] == "BREAKFAST":
+        return "breakfast"
+    if yaml_data["category"] == "SIDE":
+        return "sides"
+    return "dinner"
+
+def _slug_taken(slug: str) -> bool:
+    return (any(r.slug == slug for r in get_all_recipes())
+            or osp.exists(osp.join(PENDING_DIR, slug)) or osp.exists(osp.join(ARCHIVED_DIR, slug)))
+
 def _run_import_job(job_id: str, url: str | None, text: str | None,
                     images: list[tuple[bytes, str]] | None = None):
     """Background-thread target: run extract_recipe(), recording progress events and the final outcome on the job."""
@@ -1736,6 +1787,7 @@ def _run_import_job(job_id: str, url: str | None, text: str | None,
                 "markdown_preview": result.markdown,
                 "slug": result.slug,
                 "source": result.source,
+                "draft": _draft_from_import(result),
                 "validation_errors": [{"field": e.field, "message": e.message} for e in (result.validation_errors or [])],
             }
 
@@ -1817,31 +1869,74 @@ def import_status(job_id):
 
 @app.route("/import/confirm", methods=["POST"])
 def import_confirm():
-    """Save the previewed recipe to pending/."""
-    pending = session.get("pending_import")
-    if not pending:
-        return jsonify({"error": "No pending import found. Please extract first."}), 400
+    """Save a reviewed import. JSON {draft, destination: 'saved'|'pending'}; the draft is the
+    recipe form state (possibly edited). Without a draft, saves the last extraction as-is."""
+    body = request.get_json(silent=True) or {}
+    draft = body.get("draft")
+    destination = body.get("destination", "pending")
+    if destination not in ("saved", "pending"):
+        return jsonify({"error": "destination must be 'saved' or 'pending'"}), 400
 
-    result = ImportResult(
-        recipe_data=RecipeData(**pending["recipe_data"]),
-        markdown=pending["markdown"],
-        slug=pending["slug"],
-        source=pending["source"],
-    )
+    if draft is None:
+        pending = session.get("pending_import")
+        if not pending:
+            return jsonify({"error": "No pending import found. Please extract first."}), 400
+        draft = _draft_from_import(ImportResult(
+            recipe_data=RecipeData(**pending["recipe_data"]), markdown=pending["markdown"],
+            slug=pending["slug"], source=pending["source"]))
 
+    yaml_data, error = _validate_recipe_form(draft)
+    if error:
+        return jsonify({"error": error}), 400
+
+    from recipe_core.gemini_importer import _generate_slug
+    slug = _generate_slug(yaml_data["name"])
+    if _slug_taken(slug):
+        return jsonify({"error": f"A recipe named '{yaml_data['name']}' already exists. Rename it first."}), 409
+
+    recipe_dir = (osp.join(RECIPES_DIR, _saved_subdir(yaml_data), slug) if destination == "saved"
+                  else osp.join(PENDING_DIR, slug))
     try:
-        save_pending(result, pending_dir=PENDING_DIR)
+        os.makedirs(recipe_dir)
+        if draft.get("image_url"):
+            _download_recipe_image(draft["image_url"], recipe_dir)
+        _write_recipe(recipe_dir, yaml_data, draft.get("ingredients_md", ""), draft.get("instructions_md", ""))
+        with open(osp.join(recipe_dir, "source.txt"), "w") as f:
+            f.write(str(draft.get("source") or (session.get("pending_import") or {}).get("source") or "import"))
     except Exception as e:
-        logger.error("Failed to save pending recipe: %s", e)
+        logger.error("Failed to save imported recipe: %s", e, exc_info=True)
+        shutil.rmtree(recipe_dir, ignore_errors=True)
         return jsonify({"error": str(e)}), 500
 
+    if destination == "saved":
+        _invalidate_shopping_list_cache()
     session.pop("pending_import", None)
     job_id = session.pop("pending_import_job_id", None)
     if job_id:
         with IMPORT_JOBS_LOCK:
             IMPORT_JOBS.pop(job_id, None)
+    return jsonify({"success": True, "slug": slug, "status": destination})
 
-    return jsonify({"success": True, "slug": result.slug})
+# ---------------------------------------------------------------------------
+# Routes — AI recipe revision (editor and import review)
+# ---------------------------------------------------------------------------
+
+@app.route("/recipe/revise", methods=["POST"])
+def recipe_revise():
+    """{draft, instruction, history?} -> {draft, note}. Stateless: the client holds the draft."""
+    if not IMPORT_ENABLED:
+        return jsonify({"error": "AI editing needs GEMINI_API_KEY to be set on the server."}), 503
+    body = request.get_json(silent=True) or {}
+    instruction = str(body.get("instruction") or "").strip()
+    if not instruction:
+        return jsonify({"error": "Say what to change."}), 400
+    try:
+        revised = revise_recipe(body.get("draft") or {}, instruction,
+                                history=body.get("history") or [], api_key=GEMINI_API_KEY)
+    except Exception as e:
+        logger.exception("Recipe revision failed")
+        return jsonify({"error": f"The assistant is unavailable right now ({type(e).__name__})."}), 502
+    return jsonify({"success": True, **revised})
 
 # @app.route("/import/extract", methods=["POST"])
 # def import_extract():

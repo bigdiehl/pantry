@@ -39,6 +39,24 @@ edits). Desktop keeps the list visible and swaps edit/preview beside it.
 Preview always reflects saved content (Preview saves first when dirty), because the
 server builds the final markdown from YAML + image + body.
 
+**Import review**: after extraction the draft opens in the recipe form; Add to recipes
+(saved/), Save for later (pending/), or Discard. A photo found on the page is shown and
+downloaded on save unless unticked.
+
+**Recipe form** (`_recipe_form.html` + `scripts/recipe_form.js`): one form used by Edit
+recipes and the import review. `RecipeForm.mount(el, {onChange})` returns `get()`/`set(state)`/`reset()`.
+State is the recipe form JSON: `name, servings, category, meal, enabled, min_period_weeks,
+ingredients[{food, quantity}], ingredients_md, instructions_md`; unknown keys (`image_url`,
+`source`) pass through untouched. It contains:
+- Two `RichEditor`s (`scripts/rich_editor.js`): contenteditable with a toolbar (section
+  heading, bold, italic, bullets, numbers) and a "Text" toggle for raw markdown. `marked`
+  renders markdown in, `turndown` converts back; paste is plain text only. Storage stays
+  markdown. Uses `document.execCommand`, which is deprecated but supported everywhere and
+  needs no build step.
+- Shopping list item rows (food + quantity, foods datalist from `/editor/foods`).
+- "Ask AI to change it": posts the current state to `/recipe/revise`, applies the result,
+  shows the model's note, and keeps an undo stack plus the instruction history.
+
 **Settings rows** (Weekly plan): `.panel.settings > .setting`, switches and steppers,
 autosaved on change (debounced 400ms).
 
@@ -71,8 +89,11 @@ reset so each plan starts a clean checklist.
 
 ## Conventions
 
+- `html, body` use `overflow-x: clip`, not `hidden`: `hidden` on both makes body a scroll
+  container and breaks every `position: sticky` (header, editor bars, toolbars).
 - Escape anything user- or model-provided before putting it in `innerHTML` (`esc()`
   helpers in each page). Chat replies are HTML-escaped server-side before markdown.
 - Own static files are linked with `asset('path')`, which appends `?v=<mtime>`
   (see [PWA.md](PWA.md#asset-versioning)). Vendored files use `url_for('static', ...)`.
 - jQuery is only used by the editor and ingredients pages; new code uses plain JS.
+- Vendored libs: Bootstrap, jQuery, `marked`, `turndown`, fonts (`static/vendor/`).

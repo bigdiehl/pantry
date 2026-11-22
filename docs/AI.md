@@ -38,10 +38,33 @@ has `## Ingredients` and `## Instructions`, quantities parse.
 ### Job flow
 
 `POST /import/extract` starts a thread and returns `job_id`. The thread reports
-progress events (`attempt_start`, `validation_failed`, `retry`, `success`,
-`giving_up`, `failed`) into `IMPORT_JOBS`. The page polls `/import/status/<id>`;
-the finished result is stored in the Flask session so `POST /import/confirm` can
-save it to `pending/` (with `source.txt`). The UI then opens the editor on it.
+progress events (`fetch_fallback`, `attempt_start`, `validation_failed`, `retry`, `success`,
+`giving_up`, `failed`) into `IMPORT_JOBS`. The page polls `/import/status/<id>`.
+
+The finished result includes a `draft`: the recipe form state (markdown split into
+`ingredients_md`/`instructions_md`, the page photo URL if any, `source`). The review step
+edits it in the shared recipe form. `POST /import/confirm {draft, destination}` validates
+it with the same rules as the editor (`_validate_recipe_form`), picks the slug from the
+name (409 if taken), writes via `_write_recipe` into `saved/<breakfast|sides|dinner>/` or
+`pending/`, downloads the photo, and writes `source.txt`.
+
+YAML is always written with `yaml.safe_dump` of JSON-mode data. An earlier
+`model_dump(mode="python")` wrote `!!python/object` enum tags that `safe_load` rejects,
+which made every imported recipe open with defaults.
+
+## AI recipe revision (`recipe_core/recipe_revise.py`)
+
+`POST /recipe/revise {draft, instruction, history}` -> `{draft, note}`. Used by the
+"Ask AI to change it" box in the editor and import review.
+
+- Sends the editable fields as JSON plus the instruction; `response_schema=Revision`
+  (`recipe: RecipeDraft`, `note`). Temperature 0.3.
+- Prompt: change only what was asked plus what must change for consistency (scaling,
+  substitutions touch both ingredient lists and the steps); keep shopping items and
+  `ingredients_md` in agreement; a question gets an answer in `note` and no changes.
+- `history` (last 10 instruction/note pairs) gives follow-ups context.
+- Fields it doesn't edit (`enabled`, `min_period_weeks`, `image_url`, `source`) are
+  carried over from the input. Nothing is saved; the client applies it, with undo.
 
 ## Recipe chat (`recipe_core/recipe_chat.py`)
 

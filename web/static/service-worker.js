@@ -2,7 +2,7 @@
 // Served from /service-worker.js (see app.py) so its scope covers the whole app.
 // Bump CACHE_VERSION to force every client to drop its old cache.
 
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const CACHE_NAME = `recipes-${CACHE_VERSION}`;
 
 // Network-first requests fall back to cache after this long. Keeps the app
@@ -19,6 +19,8 @@ const PRECACHE_URLS = [
   '/static/vendor/bootstrap.min.css',
   '/static/vendor/bootstrap.bundle.min.js',
   '/static/vendor/jquery.min.js',
+  '/static/vendor/marked.min.js',
+  '/static/vendor/turndown.js',
   '/static/vendor/fonts/fonts.css',
   '/static/vendor/fonts/Lato-400.woff2',
   '/static/vendor/fonts/Lato-700.woff2',

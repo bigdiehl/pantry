@@ -45,8 +45,9 @@ JSON unless noted. Routes that need a missing API key return 503 with `{error}`.
 | Route | Does |
 |-------|------|
 | `POST /import/extract` | JSON `{url}` or `{text}`, or multipart `images[]` + `text` note -> `{job_id, max_attempts}` |
-| `GET /import/status/<job_id>` | `{status: running/done/error, events, result?, error?}` |
-| `POST /import/confirm` | Save the finished result to `pending/` -> `{slug}` |
+| `GET /import/status/<job_id>` | `{status: running/done/error, events, result?, error?}`; `result.draft` is the recipe form state |
+| `POST /import/confirm` | `{draft, destination: saved/pending}` -> `{slug, status}`; 409 if the name is taken. Without `draft`, saves the last extraction to pending |
+| `POST /recipe/revise` | `{draft, instruction, history?}` -> `{draft, note}` (AI edit, nothing saved) |
 
 ## Chat
 

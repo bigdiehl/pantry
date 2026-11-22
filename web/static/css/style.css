@@ -24,9 +24,11 @@
     --text-medium: var(--muted);
 }
 
+/* clip, not hidden: overflow-x:hidden on html+body makes body a scroll container,
+   which silently breaks every position:sticky element (header, editor bars). */
 html, body {
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: clip;
 }
 
 body {
@@ -604,7 +606,7 @@ a.suggest-card-name:hover { color: var(--accent); }
 .img-width-wrap { display: flex; align-items: center; gap: 8px; }
 .editor-layout[data-view="list"] .editor-pane { display: none; }
 .editor-layout:not([data-view="list"]) .editor-list { display: none; }
-.editor-pane { overflow: visible; }
+.editor-pane { overflow: visible; --sticky-top: calc(var(--header-h) + 56px); }
 
 .pane-bar {
     position: sticky;
@@ -724,6 +726,83 @@ label.setting { cursor: pointer; }
 .stepper span { min-width: 1.6em; text-align: center; }
 .stepper .icon-btn { border: 1px solid var(--border); font-size: 1.2rem; }
 .save-state { font-size: 0.85rem; color: var(--muted); }
+
+/* ==========================================================================
+   Recipe form (editor + import review): rich text, AI assist
+   ========================================================================== */
+/* No overflow:hidden here: it would make the box the sticky toolbar's scroll container. */
+.rich-editor {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+.rich-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 0.2rem rgba(30, 136, 229, 0.12); }
+.rich-toolbar {
+    position: sticky;
+    top: var(--sticky-top, var(--header-h));
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.rich-btn {
+    min-width: 36px;
+    height: 34px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+}
+.rich-btn:hover { background: var(--surface); }
+.rich-btn:disabled { opacity: 0.35; }
+.rich-btn.on { background: var(--accent-soft); color: var(--accent-dark); }
+.rich-mode { font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+.rich-spacer { flex: 1; }
+.rich-area {
+    min-height: 120px;
+    padding: 10px 14px;
+    outline: none;
+}
+/* Editing view: keep the recipe styling but tone headings down to field size */
+.rich-area h1, .rich-area h2 { font-size: 1.15rem; border: none; padding: 0; margin: 0.8rem 0 0.4rem; }
+.rich-area h3 { font-size: 1.02rem; margin: 0.8rem 0 0.3rem; }
+.rich-area > :first-child { margin-top: 0; }
+.rich-area p { margin-bottom: 0.5rem; }
+.rich-area.is-empty::before { content: attr(data-placeholder); color: #b6c0cc; pointer-events: none; }
+.rich-text { border: none; border-radius: 0; font-size: 0.88rem; line-height: 1.45; }
+.rich-text:focus { box-shadow: none; }
+
+.ai-assist {
+    background: var(--accent-soft);
+    border-radius: var(--radius);
+    padding: 10px;
+    margin-bottom: 4px;
+}
+.ai-assist-row { display: flex; gap: 6px; }
+.ai-assist-row .form-control { min-width: 0; background: var(--surface); }
+.ai-note { font-size: 0.88rem; margin: 8px 4px 0; color: var(--text); }
+.recipe-form > .section-label:first-of-type { margin-top: 14px; }
+
+.review-photo img { width: 100%; max-height: 260px; object-fit: cover; border-radius: var(--radius-sm); display: block; }
+.review-actions {
+    position: sticky;
+    bottom: calc(var(--tabbar-h) + var(--safe-bottom));
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+}
+@media (min-width: 768px) { .review-actions { bottom: 0; } }
 
 /* ==========================================================================
    Manage hub

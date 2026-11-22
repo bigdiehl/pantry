@@ -72,65 +72,11 @@
                         </div>
                     </div>
 
-                    <!-- Details -->
-                    <div class="section-label mt-0">Details</div>
-                    <div class="row g-2 mb-2">
-                        <div class="col-12">
-                            <label class="form-label small text-muted mb-1" for="metaName">Name</label>
-                            <input type="text" id="metaName" class="form-control">
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label small text-muted mb-1" for="metaCategory">Type</label>
-                            <select id="metaCategory" class="form-select">
-                                <option value="ENTREE">Entree</option>
-                                <option value="SALAD">Salad</option>
-                                <option value="DESSERT">Dessert</option>
-                                <option value="SIDE">Side</option>
-                            </select>
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label small text-muted mb-1" for="metaMeal">Meal</label>
-                            <select id="metaMeal" class="form-select">
-                                <option value="BREAKFAST">Breakfast</option>
-                                <option value="LUNCH">Lunch</option>
-                                <option value="DINNER">Dinner</option>
-                            </select>
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label small text-muted mb-1" for="metaServings">Servings</label>
-                            <input type="number" min="0" id="metaServings" class="form-control">
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label small text-muted mb-1" for="metaMinPeriodWeeks">Repeat after (weeks)</label>
-                            <input type="number" min="0" id="metaMinPeriodWeeks" class="form-control">
-                        </div>
-                        <div class="col-12">
-                            <div class="form-check">
-                                <input type="checkbox" class="form-check-input" id="metaEnabled">
-                                <label class="form-check-label" for="metaEnabled">Include in weekly auto-selection</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Shopping list ingredients -->
-                    <div class="section-label">Shopping list ingredients</div>
-                    <div class="panel mb-2">
-                        <div id="ingredientsTableBody"></div>
-                    </div>
-                    <button id="addIngredientRowBtn" class="btn btn-sm btn-outline-primary" type="button">+ Add ingredient</button>
-                    <datalist id="knownFoodsList"></datalist>
-
-                    <!-- Recipe text -->
-                    <div class="section-label">Recipe text</div>
                     <div id="markdownSplitWarning" class="alert alert-warning small" style="display: none;">
                         Couldn't split this recipe's text into ingredients and instructions automatically.
-                        Check the Instructions box and move anything that belongs in Ingredients.
+                        Check the Instructions and move anything that belongs in Ingredients.
                     </div>
-                    <p class="text-muted small mb-2">Markdown. The title, servings line, and image are added automatically.</p>
-                    <label class="form-label small text-muted mb-1" for="ingredientsMdEditor">Ingredients</label>
-                    <textarea id="ingredientsMdEditor" class="form-control font-monospace mb-3 md-editor" rows="8"></textarea>
-                    <label class="form-label small text-muted mb-1" for="instructionsMdEditor">Instructions</label>
-                    <textarea id="instructionsMdEditor" class="form-control font-monospace md-editor" rows="14"></textarea>
+                    {% include '_recipe_form.html' %}
                 </div>
             </div>
 
@@ -156,6 +102,10 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='vendor/jquery.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/marked.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/turndown.js') }}"></script>
+<script src="{{ asset('scripts/rich_editor.js') }}"></script>
+<script src="{{ asset('scripts/recipe_form.js') }}"></script>
 <script>
 $(function () {
     const DESKTOP = window.matchMedia('(min-width: 992px)');
@@ -283,76 +233,12 @@ $(function () {
         loadRecipeForEditing($(this).data('slug'), $(this).data('status'), !DESKTOP.matches);
     });
 
-    // ---- Ingredient rows ----
+    // ---- Form (shared with import review; see recipe_form.js) ----
 
-    $.get('/editor/foods', function (response) {
-        if (response.success) {
-            $('#knownFoodsList').html(response.foods.map(f => `<option value="${esc(f)}">`).join(''));
-        }
+    const form = RecipeForm.mount(document.getElementById('recipeForm'), {
+        onChange: () => setDirty(JSON.stringify(form.get()) !== originalStateJson),
     });
-
-    function renderIngredientRow(food, quantity) {
-        return $(`
-            <div class="ing-row">
-                <input type="text" class="form-control ingredient-food" list="knownFoodsList" placeholder="Food" value="${esc(food)}">
-                <input type="text" class="form-control ingredient-quantity" placeholder="Qty" value="${esc(quantity)}">
-                <button type="button" class="icon-btn remove-ingredient-row" aria-label="Remove ingredient">&times;</button>
-            </div>`);
-    }
-
-    $('#addIngredientRowBtn').on('click', function () {
-        const row = renderIngredientRow('', '');
-        $('#ingredientsTableBody').append(row);
-        row.find('.ingredient-food').focus();
-    });
-
-    $(document).on('click', '.remove-ingredient-row', function () {
-        $(this).closest('.ing-row').remove();
-        $('#editView').trigger('input');
-    });
-
-    // ---- Form state ----
-
-    function getFormState() {
-        const ingredients = [];
-        $('#ingredientsTableBody .ing-row').each(function () {
-            ingredients.push({
-                food: $(this).find('.ingredient-food').val().trim(),
-                quantity: $(this).find('.ingredient-quantity').val().trim()
-            });
-        });
-        return {
-            name: $('#metaName').val(),
-            servings: $('#metaServings').val(),
-            category: $('#metaCategory').val(),
-            meal: $('#metaMeal').val(),
-            enabled: $('#metaEnabled').is(':checked'),
-            min_period_weeks: $('#metaMinPeriodWeeks').val(),
-            ingredients: ingredients,
-            ingredients_md: $('#ingredientsMdEditor').val(),
-            instructions_md: $('#instructionsMdEditor').val()
-        };
-    }
-
-    function setFormState(response) {
-        const m = response.metadata;
-        $('#metaName').val(m.name);
-        $('#metaServings').val(m.servings);
-        $('#metaCategory').val(m.category);
-        $('#metaMeal').val(m.meal);
-        $('#metaEnabled').prop('checked', !!m.enabled);
-        $('#metaMinPeriodWeeks').val(m.min_period_weeks);
-
-        $('#ingredientsTableBody').empty();
-        m.ingredients.forEach(ing => $('#ingredientsTableBody').append(renderIngredientRow(ing.food, ing.quantity)));
-
-        $('#ingredientsMdEditor').val(response.ingredients_md);
-        $('#instructionsMdEditor').val(response.instructions_md);
-
-        $('#yamlErrorWarning').toggle(!!response.yaml_error)
-            .text("Couldn't read recipe.yaml: " + (response.yaml_error || '') + '. Saving rewrites it from this form.');
-        $('#markdownSplitWarning').toggle(!response.markdown_matched);
-    }
+    const getFormState = () => form.get();
 
     function setDirty(dirty) {
         hasUnsavedChanges = dirty;
@@ -361,9 +247,6 @@ $(function () {
         $('#previewBtn').text(dirty ? 'Save & preview' : 'Preview');
     }
 
-    $('#editView').on('input change', function () {
-        setDirty(JSON.stringify(getFormState()) !== originalStateJson);
-    });
 
     window.addEventListener('beforeunload', (e) => { if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -384,7 +267,12 @@ $(function () {
             $('#moveBtn').text(status === 'pending' ? 'Move to Saved' : 'Move to Pending');
             $('#archiveBtn').text(status === 'archived' ? 'Restore to Saved' : 'Archive');
 
-            setFormState(response);
+            form.reset();
+            form.set({ ...response.metadata, ingredients_md: response.ingredients_md,
+                       instructions_md: response.instructions_md });
+            $('#yamlErrorWarning').toggle(!!response.yaml_error)
+                .text("Couldn't read recipe.yaml: " + (response.yaml_error || '') + '. Saving rewrites it from this form.');
+            $('#markdownSplitWarning').toggle(!response.markdown_matched);
             originalStateJson = JSON.stringify(getFormState());
             setDirty(false);
             updateImageUI(response.image_url, response.image_width);

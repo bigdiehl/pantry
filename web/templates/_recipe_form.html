@@ -1,0 +1,64 @@
+{# Shared recipe form: Edit recipes and import review. Driven by static/scripts/recipe_form.js. #}
+<div class="recipe-form" id="recipeForm">
+    <div class="ai-assist{{ '' if import_enabled else ' d-none' }}">
+        <div class="ai-assist-row">
+            <input type="text" class="form-control ai-input" placeholder="Ask AI to change it, e.g. make it dairy-free" enterkeyhint="send">
+            <button type="button" class="btn btn-primary ai-send">Change</button>
+        </div>
+        <div class="ai-note" hidden>
+            <span class="ai-note-text"></span>
+            <button type="button" class="btn btn-link btn-sm p-0 ms-1 ai-undo">Undo</button>
+        </div>
+    </div>
+
+    <div class="section-label">Details</div>
+    <div class="row g-2 mb-2">
+        <div class="col-12">
+            <label class="form-label small text-muted mb-1" for="rfName">Name</label>
+            <input type="text" id="rfName" data-field="name" class="form-control">
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small text-muted mb-1" for="rfCategory">Type</label>
+            <select id="rfCategory" data-field="category" class="form-select">
+                <option value="ENTREE">Entree</option>
+                <option value="SALAD">Salad</option>
+                <option value="DESSERT">Dessert</option>
+                <option value="SIDE">Side</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small text-muted mb-1" for="rfMeal">Meal</label>
+            <select id="rfMeal" data-field="meal" class="form-select">
+                <option value="BREAKFAST">Breakfast</option>
+                <option value="LUNCH">Lunch</option>
+                <option value="DINNER">Dinner</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small text-muted mb-1" for="rfServings">Servings</label>
+            <input type="number" min="0" id="rfServings" data-field="servings" class="form-control">
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small text-muted mb-1" for="rfMinPeriod">Repeat after (weeks)</label>
+            <input type="number" min="0" id="rfMinPeriod" data-field="min_period_weeks" class="form-control">
+        </div>
+        <div class="col-12">
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="rfEnabled" data-field="enabled">
+                <label class="form-check-label" for="rfEnabled">Include in weekly auto-selection</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-label">Ingredients</div>
+    <div class="rich-host" data-md="ingredients_md"></div>
+
+    <div class="section-label">Instructions</div>
+    <div class="rich-host" data-md="instructions_md"></div>
+
+    <div class="section-label">Shopping list items</div>
+    <p class="text-muted small mb-2">Simple grocery names and amounts. These build the shopping list.</p>
+    <div class="panel mb-2"><div class="ing-rows"></div></div>
+    <button type="button" class="btn btn-sm btn-outline-primary add-ing">+ Add item</button>
+    <datalist id="knownFoodsList"></datalist>
+</div>

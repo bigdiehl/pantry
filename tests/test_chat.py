@@ -133,3 +133,22 @@ def test_title_from_url():
     from recipe_core.recipe_search import _title_from_url
     assert _title_from_url("https://www.budgetbytes.com/slow-cooker-italian-chicken-and-peppers/") == "Slow Cooker Italian Chicken And Peppers"
     assert _title_from_url("https://ex.com/recipes/12345-easy-fajitas-recipe.html") == "Easy Fajitas"
+
+
+def test_revise_recipe_keeps_passthrough_fields():
+    from recipe_core.recipe_revise import revise_recipe
+    reply = {"recipe": {"name": "Tacos", "servings": 8, "category": "entree", "meal": "dinner",
+                        "ingredients": [{"food": "ground beef", "quantity": "2 lb"}],
+                        "ingredients_md": "- 2 lb ground beef", "instructions_md": "1. Brown."},
+             "note": "Doubled."}
+    client = fake_client(reply)
+    out = revise_recipe({"name": "Tacos", "servings": 4, "category": "ENTREE", "meal": "DINNER",
+                         "ingredients": [{"food": "ground beef", "quantity": "1 lb"}],
+                         "ingredients_md": "- 1 lb ground beef", "instructions_md": "1. Brown.",
+                         "image_url": "https://ex.com/t.jpg", "min_period_weeks": 3},
+                        "double it", history=[{"instruction": "hi", "note": "ok"}], client=client)
+    assert out["note"] == "Doubled."
+    assert out["draft"]["servings"] == 8 and out["draft"]["category"] == "ENTREE"
+    assert out["draft"]["image_url"] == "https://ex.com/t.jpg" and out["draft"]["min_period_weeks"] == 3
+    roles = [c.role for c in client.models.calls[0]["contents"]]
+    assert roles == ["user", "model", "user"]

@@ -64,20 +64,30 @@
         <div id="importStatus" class="alert mt-3 mb-0" style="display: none;"></div>
     </div>
 
-    <!-- Result -->
+    <!-- Review: edit the import (or ask AI to change it) before adding it -->
     <div id="importPreview" style="display: none;">
-        <div class="section-label">Extracted recipe</div>
+        <div class="section-label">Review</div>
         <div class="panel">
             <div class="p-3 border-bottom small text-muted">
-                From <span id="extractedSource"></span>. Saved as pending so you can review it before it joins the rotation.
+                From <span id="extractedSource"></span>. Edit anything below, or ask AI to change it, then add it.
             </div>
             <div id="importValidationWarnings" class="alert alert-warning m-3 small" style="display: none;">
-                <strong>Saved best-effort after retries. Check these:</strong>
+                <strong>Some problems remain after retries. Check these:</strong>
                 <ul id="importValidationWarningsList" class="mb-0"></ul>
             </div>
-            <div id="extractedPreview" class="markdown-content p-3"></div>
-            <div class="p-3 border-top d-flex gap-2">
-                <button id="confirmImportBtn" class="btn btn-primary flex-fill">Save to pending</button>
+            <div class="review-photo p-3 pb-0" id="reviewPhoto" hidden>
+                <img id="reviewPhotoImg" alt="Recipe photo" referrerpolicy="no-referrer">
+                <label class="form-check small mt-2">
+                    <input type="checkbox" class="form-check-input" id="keepPhoto" checked>
+                    <span class="form-check-label">Save this photo with the recipe</span>
+                </label>
+            </div>
+            <div class="p-3">
+                {% include '_recipe_form.html' %}
+            </div>
+            <div class="review-actions">
+                <button id="confirmImportBtn" class="btn btn-primary flex-fill">Add to recipes</button>
+                <button id="pendingImportBtn" class="btn btn-outline-primary">Save for later</button>
                 <button id="discardImportBtn" class="btn btn-outline-secondary">Discard</button>
             </div>
         </div>
@@ -86,6 +96,10 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/marked.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/turndown.js') }}"></script>
+<script src="{{ asset('scripts/rich_editor.js') }}"></script>
+<script src="{{ asset('scripts/recipe_form.js') }}"></script>
 <script>
 (function () {
     const POLL_INTERVAL_MS = 800;
@@ -194,16 +208,20 @@
         $('extractBtn').textContent = on ? 'Extracting...' : 'Extract recipe';
     }
 
-    async function renderPreview(markdown) {
-        try {
-            const res = await fetch('/editor/preview', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ markdown }),
-            });
-            $('extractedPreview').innerHTML = (await res.json()).html;
-        } catch (err) {
-            $('extractedPreview').textContent = markdown;
+    const form = RecipeForm.mount(document.getElementById('recipeForm'));
+    let reviewing = false;
+
+    function showReview(draft) {
+        form.reset();
+        form.set(draft);
+        const img = $('reviewPhotoImg');
+        $('reviewPhoto').hidden = !draft.image_url;
+        $('keepPhoto').checked = true;
+        if (draft.image_url) {
+            img.onerror = () => { $('reviewPhoto').hidden = true; };
+            img.src = draft.image_url;
         }
+        reviewing = true;
     }
 
     async function poll(jobId, max) {
@@ -222,7 +240,7 @@
 
         const r = data.result;
         $('extractedSource').textContent = r.source;
-        await renderPreview(r.markdown_preview);
+        showReview(r.draft);
         const warn = r.validation_errors || [];
         $('importValidationWarningsList').innerHTML = '';
         warn.forEach(e => { const li = document.createElement('li'); li.textContent = `${e.field}: ${e.message}`; $('importValidationWarningsList').appendChild(li); });
@@ -269,26 +287,41 @@
         }
     });
 
-    $('confirmImportBtn').addEventListener('click', async () => {
-        const btn = $('confirmImportBtn');
-        btn.disabled = true;
+    async function save(destination, btn) {
+        const label = btn.textContent;
+        document.querySelectorAll('.review-actions .btn').forEach(b => { b.disabled = true; });
         btn.textContent = 'Saving...';
         try {
-            const res = await fetch('/import/confirm', { method: 'POST' });
+            const draft = form.get();
+            if (!$('keepPhoto').checked || $('reviewPhoto').hidden) draft.image_url = null;
+            const res = await fetch('/import/confirm', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draft, destination }),
+            });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || 'Failed to save recipe');
-            location.href = `/editor?edit=${encodeURIComponent(data.slug)}&status=pending`;
+            reviewing = false;
+            location.href = destination === 'saved'
+                ? `/recipes_list?recipe=${encodeURIComponent(data.slug)}`
+                : `/editor?edit=${encodeURIComponent(data.slug)}&status=pending`;
         } catch (err) {
-            status('Error: ' + err.message);
-            btn.disabled = false;
-            btn.textContent = 'Save to pending';
+            alert('Could not save: ' + err.message);
+            document.querySelectorAll('.review-actions .btn').forEach(b => { b.disabled = false; });
+            btn.textContent = label;
         }
-    });
+    }
+
+    $('confirmImportBtn').addEventListener('click', (e) => save('saved', e.currentTarget));
+    $('pendingImportBtn').addEventListener('click', (e) => save('pending', e.currentTarget));
 
     $('discardImportBtn').addEventListener('click', () => {
+        if (!confirm('Discard this imported recipe?')) return;
+        reviewing = false;
         show($('importPreview'), false);
         show($('importProgress'), false);
     });
+
+    window.addEventListener('beforeunload', (e) => { if (reviewing) { e.preventDefault(); e.returnValue = ''; } });
 
     // /import?url=... (the Import button on chat web results) starts right away.
     const linked = new URLSearchParams(location.search).get('url');
