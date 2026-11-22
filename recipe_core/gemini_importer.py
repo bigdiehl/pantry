@@ -165,7 +165,17 @@ def _format_validation_errors(errors: List[ValidationError]) -> str:
 
     return "\n".join(lines)
 
-def _extract_with_gemini(client, content: str, feedback: Optional[str] = None) -> str:
+PHOTO_INSTRUCTIONS = """
+
+-----------------------------
+The recipe is in the attached photo(s) (e.g. a cookbook page, recipe card, or handwritten note),
+in order if there is more than one. Transcribe it faithfully: keep the original quantities and steps,
+and read handwriting carefully. Any text above is an optional note from the user about the photos.
+Do not include an image tag in the MARKDOWN section for photo imports.
+"""
+
+def _extract_with_gemini(client, content: str, feedback: Optional[str] = None,
+                         images: Optional[List[Tuple[bytes, str]]] = None) -> str:
     """
     Call Gemini API to extract recipe.
 
@@ -173,6 +183,7 @@ def _extract_with_gemini(client, content: str, feedback: Optional[str] = None) -
         client: Gemini API client
         content: Recipe content to extract
         feedback: Optional feedback from previous validation failure
+        images: Optional (bytes, mime_type) photos of the recipe, sent alongside the prompt
 
     Returns:
         Raw response text from Gemini
@@ -254,10 +265,15 @@ Content to extract:
 
 {content[:10000]}"""
 
+    contents = prompt
+    if images:
+        prompt += PHOTO_INSTRUCTIONS
+        contents = [prompt] + [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in images]
+
     logger.debug("Sending prompt to Gemini API...")
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=prompt
+        contents=contents
     )
 
     # Extract text from response
@@ -271,6 +287,7 @@ Content to extract:
 def extract_recipe(
     url: Optional[str] = None,
     text: Optional[str] = None,
+    images: Optional[List[Tuple[bytes, str]]] = None,
     api_key: Optional[str] = None,
     on_progress: Optional[ProgressCallback] = None,
 ) -> ImportResult:
@@ -279,7 +296,8 @@ def extract_recipe(
 
     Args:
         url: URL to extract recipe from (optional)
-        text: Text containing recipe (optional)
+        text: Text containing recipe (optional). With images, an optional note about them.
+        images: (bytes, mime_type) photos of a recipe (optional)
         api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
         on_progress: Optional callback invoked with a dict at each step of the
             attempt/validate/retry loop, so a caller can surface progress
@@ -292,8 +310,8 @@ def extract_recipe(
         if on_progress:
             on_progress(event)
 
-    if not url and not text:
-        raise ValueError("Must provide either url or text")
+    if not url and not text and not images:
+        raise ValueError("Must provide a url, text, or images")
 
     # Get API key
     api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -304,7 +322,10 @@ def extract_recipe(
     client = genai.Client(api_key=api_key)
 
     # Get recipe content
-    if url:
+    if images:
+        source = f"photo ({len(images)} image{'s' if len(images) != 1 else ''})"
+        content = text or ""
+    elif url:
         source = url
         raw_content = _fetch_url(url)
         content = _extract_main_content(raw_content)
@@ -325,7 +346,7 @@ def extract_recipe(
 
         try:
             # Call Gemini
-            result = _extract_with_gemini(client, content, feedback)
+            result = _extract_with_gemini(client, content, feedback, images=images)
 
             logger.debug("Received text response from Gemini API")
             logger.debug("=" * 50)

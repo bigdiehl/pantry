@@ -1,4 +1,5 @@
 import json
+from html import escape as html_escape
 import logging
 import os
 import os.path as osp
@@ -15,7 +16,7 @@ from io import BytesIO
 
 import markdown
 import yaml
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory, send_file, session, redirect
+from flask import Flask, abort, jsonify, render_template, request, send_from_directory, send_file, session, redirect, url_for
 from pydantic import ValidationError
 from weasyprint import HTML, CSS
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -31,6 +32,8 @@ from recipe_core.shopping_list import (
 )
 from recipe_core.mailer import build_message, send_email
 from recipe_core.gemini_importer import extract_recipe, ImportResult, MAX_RETRIES
+from recipe_core.recipe_chat import build_catalog, chat as recipe_chat
+from recipe_core.push import PushStore
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ PENDING_DIR  = os.path.join(DATA_DIR, config["app"]["pending_dir"])
 ARCHIVED_DIR = os.path.join(DATA_DIR, config["app"]["archived_dir"])
 STATE_FILE  = os.path.join(_this_dir, config["app"]["state_file"])
 OUTPUT_DIR  = os.path.join(_this_dir, config["app"]["output_dir"])
+PUSH = PushStore(os.path.join(_this_dir, "instance"))
 
 # Email configuration
 EMAIL_CONFIG = config.get("email", {})
@@ -87,6 +91,18 @@ class Recipe:
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__)
+
+@app.context_processor
+def _asset_helper():
+    """asset('css/style.css') -> /static/css/style.css?v=<mtime>. The service worker
+    caches static files by full URL, so a changed file gets a new cache entry."""
+    def asset(filename: str) -> str:
+        try:
+            version = int(os.path.getmtime(os.path.join(app.static_folder, filename)))
+        except OSError:
+            version = 0
+        return url_for("static", filename=filename, v=version)
+    return {"asset": asset}
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 # ---------------------------------------------------------------------------
@@ -175,16 +191,26 @@ def _update_state(slug: str, **kwargs):
 # Schedule configuration
 # ---------------------------------------------------------------------------
 
+PLAN_DEFAULTS = {
+    "enabled": False,
+    "num_recipes": 3,
+    "frequency_weeks": 1,     # 1 = every week, 2 = every other week
+    "day_of_week": 6,         # 0 = Monday ... 6 = Sunday (APScheduler convention)
+    "send_time": "09:00",
+    "fresh_start": True,      # replace last week's picks instead of keeping them
+    "notify": True,           # push notification to subscribed devices
+    "send_email": False,
+    "recipients": "",
+}
+
 def _get_schedule_config() -> dict:
-    """Get the schedule configuration from state file."""
-    state = _load_state()
-    return state.get("_schedule_config", {
-        "enabled": False,
-        "num_recipes": 3,
-        "day_of_week": 0,  # Monday
-        "send_time": "09:00",
-        "recipients": ""
-    })
+    """Weekly plan settings from the state file, with defaults for missing keys.
+    Older configs (email-only) predate send_email: keep emailing if they had recipients."""
+    stored = _load_state().get("_schedule_config", {})
+    config = {**PLAN_DEFAULTS, **stored}
+    if "send_email" not in stored:
+        config["send_email"] = bool(stored.get("recipients", "").strip())
+    return config
 
 def _save_schedule_config(config: dict):
     """Save schedule configuration to state file."""
@@ -262,110 +288,104 @@ def update_recipe_usage(slugs: list[str]):
     for slug in slugs:
         _update_state(slug, last_used_date=today)
 
-def send_scheduled_shopping_list():
-    """
-    Scheduled task to send weekly shopping list email.
-    Selects recipes, generates PDF, and sends via email.
-    """
+def _email_shopping_list(slugs: list[str], recipients: list[str]):
+    """Email a PDF shopping list for the given recipes."""
+    lists, metas = _get_shopping_list_data()
+    main, secondary = get_merged_shopping_list(slugs, lists)
+    names = [metas[slug].name for slug in slugs]
+    md = generate_shopping_list_md(names, slugs, main, secondary, show_sources=False)
+    html_content = markdown.markdown(md, extensions=["tables", "fenced_code", "nl2br", "sane_lists"])
+    full_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        @page {{ size: letter; margin: 0.75in; }}
+        body {{ font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #000; }}
+        h1 {{ font-size: 20pt; margin: 0 0 0.5em; padding-bottom: 0.3em; border-bottom: 2px solid #333; }}
+        h2 {{ font-size: 16pt; margin: 1em 0 0.4em; padding-bottom: 0.2em; border-bottom: 1px solid #666; page-break-after: avoid; }}
+        table {{ width: 100%; border-collapse: collapse; margin-bottom: 1em; page-break-inside: avoid; }}
+        th, td {{ padding: 6px 10px; border: 1px solid #999; text-align: left; }}
+        th {{ background-color: #f0f0f0; }}
+    </style></head><body>{html_content}</body></html>"""
+    pdf_bytes = HTML(string=full_html).write_pdf()
+
+    today = date.today().isoformat()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    pdf_path = osp.join(OUTPUT_DIR, f"shopping-list-{today}.pdf")
+    with open(pdf_path, "wb") as f:
+        f.write(pdf_bytes)
     try:
-        config = _get_schedule_config()
+        body = f"Your shopping list for {len(slugs)} recipes.\n\nRecipes:\n" + "\n".join(f"- {n}" for n in names)
+        message = build_message(sender=GMAIL_SENDER, recipients=recipients,
+                                subject=f"Weekly Shopping List - {today}", body=body, attachments=[pdf_path])
+        send_email(sender=GMAIL_SENDER, password=GMAIL_PASSWORD, recipients=recipients,
+                   message=message, server=SMTP_SERVER, port=SMTP_PORT)
+    finally:
+        if osp.exists(pdf_path):
+            os.remove(pdf_path)
+    logger.info("Shopping list emailed to: %s", ", ".join(recipients))
 
-        if not config.get("enabled"):
-            logger.info("Scheduled email disabled, skipping")
-            return
+def run_weekly_plan(force: bool = False) -> dict:
+    """
+    Pick this week's recipes, put them on the shopping list, then notify subscribed
+    devices and (optionally) email the list. Scheduled by _reschedule_email_job();
+    force=True runs it now regardless of the enabled/frequency settings.
+    """
+    config = _get_schedule_config()
+    state = _load_state()
+    last = state.get("_week_plan", {}).get("created")
 
-        recipients_str = config.get("recipients", "").strip()
-        if not recipients_str:
-            logger.warning("No recipients configured for scheduled email")
-            return
+    if not force:
+        if not config["enabled"]:
+            return {"skipped": "disabled"}
+        if config["frequency_weeks"] > 1 and last:
+            days = (datetime.now() - datetime.fromisoformat(last)).days
+            if days < 7 * config["frequency_weeks"] - 3:
+                logger.info("Weekly plan: last run %d days ago, skipping this week", days)
+                return {"skipped": "not due"}
 
-        recipients = [e.strip() for e in recipients_str.replace(";", ",").split(",") if e.strip()]
-        num_recipes = config.get("num_recipes", 3)
+    if config["fresh_start"]:
+        for r in get_all_recipes():
+            if r.selected:
+                _update_state(r.slug, selected=False)
 
-        # Select recipes
-        selected_slugs = select_recipes_for_schedule(num_recipes)
+    slugs = select_recipes_for_schedule(int(config["num_recipes"]))
+    if not slugs:
+        logger.warning("Weekly plan: no recipes available")
+        return {"skipped": "no recipes available"}
 
-        if not selected_slugs:
-            logger.warning("No recipes available for scheduled email")
-            return
+    for slug in slugs:
+        _update_state(slug, selected=True)
+    update_recipe_usage(slugs)
+    _invalidate_shopping_list_cache()
 
-        # Update recipe usage tracking
-        update_recipe_usage(selected_slugs)
+    _, metas = _get_shopping_list_data()
+    names = [metas[s].name if s in metas else s.replace("_", " ").title() for s in slugs]
+    state = _load_state()
+    state["_week_plan"] = {"created": datetime.now().isoformat(timespec="seconds"),
+                           "slugs": slugs, "names": names}
+    _save_state(state)
+    result = {"slugs": slugs, "names": names, "notified": 0, "emailed": False}
 
-        # Generate PDF
-        lists, metas = _get_shopping_list_data()
-        main, secondary = get_merged_shopping_list(selected_slugs, lists)
-        names = [metas[slug].name for slug in selected_slugs]
-        md = generate_shopping_list_md(names, selected_slugs, main, secondary, show_sources=False)
+    if config["notify"]:
+        result["notified"] = PUSH.send_all(
+            title="This week's recipes",
+            body=", ".join(names) + ". Tap to review and shop.",
+            url="/", tag="weekly-plan")
 
-        html_content = markdown.markdown(md, extensions=["tables", "fenced_code", "nl2br", "sane_lists"])
+    recipients = [e.strip() for e in config["recipients"].replace(";", ",").split(",") if e.strip()]
+    if config["send_email"] and recipients and EMAIL_ENABLED:
+        try:
+            _email_shopping_list(slugs, recipients)
+            result["emailed"] = True
+        except Exception as e:
+            logger.error("Weekly plan email failed: %s", e, exc_info=True)
 
-        full_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                @page {{ size: letter; margin: 0.75in; }}
-                body {{ font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #000; }}
-                h1 {{ font-size: 20pt; font-weight: bold; color: #000; margin-top: 0; margin-bottom: 0.5em; padding-bottom: 0.3em; border-bottom: 2px solid #333; }}
-                h2 {{ font-size: 16pt; font-weight: bold; color: #000; margin-top: 1em; margin-bottom: 0.4em; padding-bottom: 0.2em; border-bottom: 1px solid #666; page-break-after: avoid; }}
-                table {{ width: 100%; border-collapse: collapse; margin-bottom: 1em; page-break-inside: avoid; }}
-                th, td {{ padding: 6px 10px; border: 1px solid #999; text-align: left; }}
-                th {{ background-color: #f0f0f0; font-weight: bold; }}
-            </style>
-        </head>
-        <body>
-            {html_content}
-        </body>
-        </html>
-        """
+    logger.info("Weekly plan: %s (notified %d devices)", ", ".join(names), result["notified"])
+    return result
 
-        pdf_bytes = HTML(string=full_html).write_pdf()
-
-        # Send email
-        if not EMAIL_ENABLED:
-            logger.error("Email features disabled - skipping scheduled email")
-            return
-
-        sender = GMAIL_SENDER
-        password = GMAIL_PASSWORD
-
-        today = date.today().isoformat()
-        filename = f"shopping-list-{today}.pdf"
-        temp_pdf_path = osp.join(OUTPUT_DIR, filename)
-
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        with open(temp_pdf_path, "wb") as f:
-            f.write(pdf_bytes)
-
-        subject = f"Weekly Shopping List - {today}"
-        body = f"Your weekly shopping list for {len(selected_slugs)} recipes.\n\nRecipes:\n" + "\n".join(f"- {metas[slug].name}" for slug in selected_slugs)
-
-        message = build_message(
-            sender=sender,
-            recipients=recipients,
-            subject=subject,
-            body=body,
-            attachments=[temp_pdf_path]
-        )
-
-        send_email(
-            sender=sender,
-            password=password,
-            recipients=recipients,
-            message=message,
-            server=SMTP_SERVER,
-            port=SMTP_PORT
-        )
-
-        if osp.exists(temp_pdf_path):
-            os.remove(temp_pdf_path)
-
-        logger.info("Scheduled shopping list sent to: %s", ", ".join(recipients))
-
+def _scheduled_weekly_plan():
+    try:
+        run_weekly_plan()
     except Exception as e:
-        logger.error("Failed to send scheduled shopping list: %s", e, exc_info=True)
+        logger.error("Weekly plan failed: %s", e, exc_info=True)
 
 # ---------------------------------------------------------------------------
 # Shopping list helpers
@@ -427,20 +447,6 @@ def features():
         "email_enabled": EMAIL_ENABLED,
         "import_enabled": IMPORT_ENABLED
     })
-
-@app.route("/archive/shopping_list")
-def archived_shopping_list():
-    """Archived: markdown-based shopping list page (email/PDF/schedule UI), superseded by the interactive table at '/'."""
-    recipes = get_all_recipes()
-    selected = sorted([r for r in recipes if r.selected], key=lambda r: r.name)
-    return render_template(
-        "archive_shopping_list.html",
-        active_page="archive_shopping_list",
-        email_enabled=EMAIL_ENABLED,
-        import_enabled=IMPORT_ENABLED,
-        recipes=selected,
-        shopping_list_html=get_shopping_list_html(),
-    )
 
 @app.route("/deselect/<slug>", methods=["POST"])
 def deselect(slug):
@@ -794,11 +800,6 @@ def recipes_list():
         import_enabled=IMPORT_ENABLED,
     )
 
-@app.route("/archive/shopping_demo")
-def archived_shopping_demo():
-    """Archived: interactive shopping list prototype using fake demo data (not the real recipe data)."""
-    return render_template("archive_shopping_demo.html", active_page="archive_shopping_demo", email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
-
 def get_shopping_list_items() -> dict:
     """
     Return the merged shopping list for the currently selected recipes, split
@@ -846,6 +847,7 @@ def index():
         import_enabled=IMPORT_ENABLED,
         recipes=selected,
         shopping_items=get_shopping_list_items(),
+        week_id=_load_state().get("_week_plan", {}).get("created"),
     )
 
 @app.route("/recipes_list/toggle/<slug>", methods=["POST"])
@@ -1225,6 +1227,77 @@ def _rewrite_recipe_image_tag(status: str, slug: str, recipe_dir: str, image_fil
     return new_md
 
 # ---------------------------------------------------------------------------
+# Routes — Manage hub
+# ---------------------------------------------------------------------------
+
+@app.route("/manage")
+def manage_page():
+    counts = {
+        "saved": len(get_all_recipes()),
+        "pending": len(_list_flat_recipes(PENDING_DIR, "pending")),
+        "archived": len(_list_flat_recipes(ARCHIVED_DIR, "archived")),
+    }
+    return render_template("manage.html", active_page="manage", counts=counts,
+                           email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
+
+# ---------------------------------------------------------------------------
+# Routes — Recipe chat (Gemini)
+# ---------------------------------------------------------------------------
+
+@app.route("/chat")
+def chat_page():
+    return render_template("chat.html", active_page="chat", chat_enabled=IMPORT_ENABLED,
+                           email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
+
+def _chat_catalog() -> tuple[str, dict]:
+    """Compact catalog of saved recipes for the chat prompt, plus slug -> Recipe."""
+    state = _load_state()
+    recipes = get_all_recipes()
+    _, metas = _get_shopping_list_data()
+    entries = []
+    for r in recipes:
+        meta = metas.get(r.slug)
+        entries.append({
+            "slug": r.slug,
+            "name": meta.name if meta else r.name,
+            "category": r.category,
+            "meal": r.meal,
+            "ingredients": [i.food for i in meta.ingredients] if meta else [],
+            "last_used": state.get(r.slug, {}).get("last_used_date"),
+            "selected": r.selected,
+        })
+    return build_catalog(entries), {r.slug: r for r in recipes}
+
+@app.route("/chat/message", methods=["POST"])
+def chat_message():
+    if not IMPORT_ENABLED:
+        return jsonify({"error": "Chat needs GEMINI_API_KEY to be set on the server."}), 503
+    messages = (request.get_json(silent=True) or {}).get("messages") or []
+    catalog, by_slug = _chat_catalog()
+    try:
+        result = recipe_chat(messages, catalog, api_key=GEMINI_API_KEY)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Chat request failed")
+        return jsonify({"error": f"The assistant is unavailable right now ({type(e).__name__})."}), 502
+
+    picks, seen = [], set()
+    for pick in result.recipes:
+        recipe = by_slug.get(pick.slug)
+        if recipe and pick.slug not in seen:
+            seen.add(pick.slug)
+            picks.append({"slug": recipe.slug, "name": recipe.name, "reason": pick.reason,
+                          "selected": recipe.selected})
+
+    return jsonify({
+        "reply": result.reply,
+        "reply_html": markdown.markdown(html_escape(result.reply), extensions=["sane_lists", "nl2br"]),
+        "recipes": picks,
+        "ideas": [i.model_dump() for i in result.ideas],
+    })
+
+# ---------------------------------------------------------------------------
 # Routes — Recipe Editor
 # ---------------------------------------------------------------------------
 
@@ -1589,6 +1662,8 @@ def import_page():
 IMPORT_JOBS: dict[str, dict] = {}
 IMPORT_JOBS_LOCK = threading.Lock()
 IMPORT_JOB_TTL_SECONDS = 3600
+MAX_IMPORT_IMAGES = 6
+MAX_IMPORT_IMAGE_BYTES = 15_000_000
 
 def _prune_import_jobs():
     """Drop jobs older than IMPORT_JOB_TTL_SECONDS so IMPORT_JOBS doesn't grow unbounded."""
@@ -1597,7 +1672,8 @@ def _prune_import_jobs():
         for job_id in [jid for jid, job in IMPORT_JOBS.items() if job["created_at"] < cutoff]:
             del IMPORT_JOBS[job_id]
 
-def _run_import_job(job_id: str, url: str | None, text: str | None):
+def _run_import_job(job_id: str, url: str | None, text: str | None,
+                    images: list[tuple[bytes, str]] | None = None):
     """Background-thread target: run extract_recipe(), recording progress events and the final outcome on the job."""
     def on_progress(event: dict):
         with IMPORT_JOBS_LOCK:
@@ -1606,7 +1682,7 @@ def _run_import_job(job_id: str, url: str | None, text: str | None):
                 job["events"].append(event)
 
     try:
-        result = extract_recipe(url=url, text=text, on_progress=on_progress)
+        result = extract_recipe(url=url, text=text, images=images, on_progress=on_progress)
     except Exception as e:
         logger.error("Import job %s failed: %s", job_id, e)
         with IMPORT_JOBS_LOCK:
@@ -1636,12 +1712,27 @@ def import_extract():
             "error": "Recipe import disabled. Set GEMINI_API_KEY environment variable to enable."
         }), 503
 
-    data = request.get_json()
+    # JSON {url, text}, or multipart form with `images` files and an optional `text` note.
+    images = []
+    if request.files:
+        data = request.form
+        files = request.files.getlist("images")
+        if len(files) > MAX_IMPORT_IMAGES:
+            return jsonify({"error": f"Up to {MAX_IMPORT_IMAGES} photos at a time."}), 400
+        for f in files:
+            if not (f.mimetype or "").startswith("image/"):
+                return jsonify({"error": f"{f.filename or 'File'} is not an image."}), 400
+            blob = f.read()
+            if len(blob) > MAX_IMPORT_IMAGE_BYTES:
+                return jsonify({"error": f"{f.filename or 'Photo'} is too large (max {MAX_IMPORT_IMAGE_BYTES // 1_000_000} MB)."}), 400
+            images.append((blob, f.mimetype))
+    else:
+        data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip() or None
     text = (data.get("text") or "").strip() or None
 
-    if not url and not text:
-        return jsonify({"error": "Provide a URL or pasted text."}), 400
+    if not url and not text and not images:
+        return jsonify({"error": "Provide a URL, pasted text, or a photo."}), 400
 
     _prune_import_jobs()
 
@@ -1654,7 +1745,7 @@ def import_extract():
             "created_at": time.time(),
         }
 
-    threading.Thread(target=_run_import_job, args=(job_id, url, text), daemon=True).start()
+    threading.Thread(target=_run_import_job, args=(job_id, url, text, images or None), daemon=True).start()
 
     return jsonify({"success": True, "job_id": job_id, "max_attempts": MAX_RETRIES})
 
@@ -1910,83 +2001,88 @@ def delete_archived(slug):
 # Routes — schedule management
 # ---------------------------------------------------------------------------
 
+def _next_plan_run(config: dict) -> str | None:
+    if not config["enabled"]:
+        return None
+    job = scheduler.get_job("weekly_shopping_list")
+    nxt = job.next_run_time if job else None
+    return nxt.strftime("%a %b %-d, %-I:%M %p") if nxt else None
+
+@app.route("/plan")
+def plan_page():
+    return render_template("plan.html", active_page="plan", email_enabled=EMAIL_ENABLED,
+                           import_enabled=IMPORT_ENABLED)
+
 @app.route("/schedule/config", methods=["GET"])
 def get_schedule():
-    """Get current schedule configuration."""
-    if not EMAIL_ENABLED:
-        return jsonify({
-            "error": "Schedule features disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD to enable."
-        }), 503
-
     config = _get_schedule_config()
-
-    # Calculate next send date/time if enabled
-    next_send = None
-    if config.get("enabled"):
-        day_of_week = config.get("day_of_week", 0)
-        send_time = config.get("send_time", "09:00")
-
-        today = date.today()
-        days_until = (day_of_week - today.weekday()) % 7
-        if days_until == 0:
-            # Check if time has passed today
-            hour, minute = map(int, send_time.split(":"))
-            now = datetime.now()
-            send_datetime = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if now >= send_datetime:
-                days_until = 7
-
-        next_date = today + timedelta(days=days_until if days_until > 0 else 7)
-        next_send = f"{next_date.isoformat()} {send_time}"
-
-    return jsonify({
-        "success": True,
-        "config": config,
-        "next_send": next_send
-    })
+    last = _load_state().get("_week_plan")
+    return jsonify({"success": True, "config": config, "next_run": _next_plan_run(config),
+                    "last_plan": last, "email_enabled": EMAIL_ENABLED,
+                    "devices": len(PUSH.subscriptions())})
 
 @app.route("/schedule/config", methods=["POST"])
 def save_schedule():
-    """Save schedule configuration."""
-    if not EMAIL_ENABLED:
-        return jsonify({
-            "error": "Schedule features disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD to enable."
-        }), 503
-
+    data = request.get_json(silent=True) or {}
     try:
-        data = request.get_json()
+        hour, minute = map(int, str(data.get("send_time", "09:00")).split(":"))
         config = {
-            "enabled": data.get("enabled", False),
-            "num_recipes": int(data.get("num_recipes", 3)),
-            "day_of_week": int(data.get("day_of_week", 0)),
-            "send_time": data.get("send_time", "09:00"),
-            "recipients": data.get("recipients", "")
+            "enabled": bool(data.get("enabled")),
+            "num_recipes": max(1, min(14, int(data.get("num_recipes", 3)))),
+            "frequency_weeks": 2 if int(data.get("frequency_weeks", 1)) == 2 else 1,
+            "day_of_week": int(data.get("day_of_week", 6)) % 7,
+            "send_time": f"{hour % 24:02d}:{minute % 60:02d}",
+            "fresh_start": bool(data.get("fresh_start", True)),
+            "notify": bool(data.get("notify", True)),
+            "send_email": bool(data.get("send_email")),
+            "recipients": str(data.get("recipients", "")).strip(),
         }
-
-        _save_schedule_config(config)
-
-        # Reschedule the job
-        _reschedule_email_job()
-
-        return jsonify({"success": True, "message": "Schedule saved"})
-    except Exception as e:
-        logger.error("Failed to save schedule: %s", e, exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+    except (TypeError, ValueError) as e:
+        return jsonify({"success": False, "error": f"Invalid settings: {e}"}), 400
+    _save_schedule_config(config)
+    _reschedule_email_job()
+    return jsonify({"success": True, "config": config, "next_run": _next_plan_run(config)})
 
 @app.route("/schedule/send_now", methods=["POST"])
 def send_now():
-    """Manually trigger scheduled email."""
-    if not EMAIL_ENABLED:
-        return jsonify({
-            "error": "Email features disabled. Set GMAIL_SENDER and GMAIL_APP_PASSWORD to enable."
-        }), 503
-
+    """Run the weekly plan immediately (pick, select, notify, email)."""
     try:
-        send_scheduled_shopping_list()
-        return jsonify({"success": True, "message": "Email sent successfully"})
+        return jsonify({"success": True, **run_weekly_plan(force=True)})
     except Exception as e:
-        logger.error("Failed to send email: %s", e, exc_info=True)
+        logger.error("Weekly plan failed: %s", e, exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# Routes — push notifications
+# ---------------------------------------------------------------------------
+
+@app.route("/push/key")
+def push_key():
+    return jsonify({"public_key": PUSH.public_key})
+
+@app.route("/push/subscribe", methods=["POST"])
+def push_subscribe():
+    data = request.get_json(silent=True) or {}
+    try:
+        PUSH.add(data.get("subscription") or {}, label=str(data.get("label", "")))
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    return jsonify({"success": True, "devices": len(PUSH.subscriptions())})
+
+@app.route("/push/unsubscribe", methods=["POST"])
+def push_unsubscribe():
+    PUSH.remove(str((request.get_json(silent=True) or {}).get("endpoint", "")))
+    return jsonify({"success": True, "devices": len(PUSH.subscriptions())})
+
+@app.route("/push/status", methods=["POST"])
+def push_status():
+    endpoint = str((request.get_json(silent=True) or {}).get("endpoint", ""))
+    return jsonify({"subscribed": PUSH.has(endpoint), "devices": len(PUSH.subscriptions())})
+
+@app.route("/push/test", methods=["POST"])
+def push_test():
+    sent = PUSH.send_all("Pantry", "Notifications are working.", url="/plan", tag="test")
+    return jsonify({"success": sent > 0, "sent": sent})
 
 # ---------------------------------------------------------------------------
 # Scheduler setup
@@ -2003,7 +2099,7 @@ def _reschedule_email_job():
 
     config = _get_schedule_config()
     if not config.get("enabled"):
-        logger.info("Scheduled emails disabled")
+        logger.info("Weekly plan disabled")
         return
 
     day_of_week = config.get("day_of_week", 0)
@@ -2018,14 +2114,14 @@ def _reschedule_email_job():
     )
 
     scheduler.add_job(
-        func=send_scheduled_shopping_list,
+        func=_scheduled_weekly_plan,
         trigger=trigger,
         id="weekly_shopping_list",
-        name="Weekly Shopping List Email",
+        name="Weekly plan",
         replace_existing=True
     )
 
-    logger.info("Scheduled weekly email for day=%d at %s", day_of_week, send_time)
+    logger.info("Scheduled weekly plan for day=%d at %s", day_of_week, send_time)
 
 # ---------------------------------------------------------------------------
 # Startup

@@ -44,6 +44,8 @@ def app_module(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app_mod, "STATE_FILE", str(tmp_path / "state.json"))
     monkeypatch.setattr(app_mod, "OUTPUT_DIR", str(tmp_path / "output"))
+    from recipe_core.push import PushStore
+    monkeypatch.setattr(app_mod, "PUSH", PushStore(str(tmp_path / "instance")))
     app_mod._invalidate_shopping_list_cache()
     app_mod.app.config["TESTING"] = True
     return app_mod
