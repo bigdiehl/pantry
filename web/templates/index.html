@@ -23,7 +23,7 @@
 
     <div class="chip-row" aria-label="Selected recipes">
         {% for recipe in recipes %}
-        <span class="chip">{{ recipe.name }}<button type="button" class="remove-recipe" data-slug="{{ recipe.slug }}" aria-label="Remove {{ recipe.name }}">&times;</button></span>
+        <span class="chip"><span class="chip-name">{{ recipe.name }}</span><button type="button" class="remove-recipe" data-slug="{{ recipe.slug }}" aria-label="Remove {{ recipe.name }}">&times;</button></span>
         {% endfor %}
         <a class="chip chip-add" href="{{ url_for('recipes_list') }}">+ {{ 'Recipes' if recipes else 'Pick recipes' }}</a>
     </div>
