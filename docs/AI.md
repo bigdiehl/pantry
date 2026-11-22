@@ -1,6 +1,6 @@
 # AI Features (Gemini)
 
-Both features use `gemini-2.5-flash` through `google-genai` and need `GEMINI_API_KEY`.
+All features use `gemini-2.5-flash` through `google-genai` and need `GEMINI_API_KEY`.
 Without it, `IMPORT_ENABLED` is false and both routes return 503.
 
 ## Recipe import (`recipe_core/gemini_importer.py`)
@@ -9,7 +9,7 @@ Without it, `IMPORT_ENABLED` is false and both routes return 503.
 
 | Mode | Content sent to Gemini |
 |------|------------------------|
-| URL | Page fetched with `requests`, main content extracted (readability + BeautifulSoup), first 10k chars |
+| URL | Page fetched with `requests`, main content extracted (BeautifulSoup), first 10k chars. If the site refuses the fetch, Gemini's URL context tool reads the page instead (slower; progress shows `fetch_fallback`) |
 | Text | Pasted text |
 | Photo | 1-6 images as inline parts, plus an optional note; `PHOTO_INSTRUCTIONS` asks for a faithful transcription and no image tag |
 
@@ -45,6 +45,9 @@ save it to `pending/` (with `source.txt`). The UI then opens the editor on it.
 
 ## Recipe chat (`recipe_core/recipe_chat.py`)
 
+Two steps: answer from saved recipes (one fast model call), then, if the user wants,
+search the web for new ones.
+
 ### Prompt
 
 System instruction = rules + a catalog of saved recipes, one line each:
@@ -54,21 +57,48 @@ slug | name | category, meal | last made 2026-09-13 | on list | ingredient, ingr
 ```
 
 Conversation is sent as alternating `user`/`model` contents (last 20 messages, each
-capped at 4000 chars). Must end with a user message.
+capped at 4000 chars). Assistant turns are resent with the cards they showed appended
+(`[Saved recipes shown: ...]`, `[Web recipes shown: ...]`) so follow-ups like
+"more like the second one" have context.
 
 ### Structured reply
 
 `response_schema=ChatReply`, JSON mode:
 
 ```python
-ChatReply(reply: str,                      # short markdown
+ChatReply(reply: str,                       # short markdown
           recipes: [RecipePick(slug, reason)],
-          ideas: [RecipeIdea(name, summary)])
+          offer_search: bool,               # show "Look for new recipes"
+          offer_query: str | None,          # query to run if accepted
+          web_search: str | None)           # run a web search now
 ```
 
 The route drops any slug not in the catalog (no hallucinated recipes), attaches the
-current `selected` flag, and renders `reply` to HTML after escaping it. The page shows
-picks as cards with Add/On list buttons and ideas with a web search link.
+`selected` flag and a thumbnail (`image.*`, else any image in the recipe folder), and
+renders `reply` to HTML after escaping it.
+
+When to search: the model sets `web_search` when the user accepts the offer ("yes"),
+says "look for more", or asks for "recipes like X". The "Look for new recipes" button
+skips that model turn: it posts `search: offer_query` and the route searches directly.
+
+### Web recipe search (`recipe_core/recipe_search.py`)
+
+```
+Gemini + google_search tool  ->  ~8 grounding URLs (Google redirect links)   ~7s
+resolve each redirect (no download), fetch target, 3s timeout, in parallel   ~2s
+  200 + schema.org Recipe JSON-LD -> full card: name, photo, total time, summary
+  401/403/429/503 (bot protection) -> basic card: title from URL slug, no photo
+  anything else, or roundup titles ("...Recipes", "Best ...") -> dropped
+photo cards first, de-duplicated, max 4
+```
+
+We do not work around bot protection (no browser impersonation). Reading pages with
+Gemini's URL context tool works on blocked sites but took ~45s for four pages, too slow
+for chat; the importer uses it as a fallback instead (see above).
+
+Cards show the photo (hotlinked, `referrerpolicy="no-referrer"`, hidden if it fails),
+site, time, a 2-line summary, and **Import** -> `/import?url=...`, which starts the
+import immediately.
 
 ### State
 

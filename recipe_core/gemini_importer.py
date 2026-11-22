@@ -62,6 +62,22 @@ def _fetch_url(url: str) -> str:
         logger.error("Failed to fetch URL %s: %s", url, e)
         raise ValueError(f"Failed to fetch URL: {e}")
 
+def _read_url_with_gemini(client, url: str) -> str:
+    """Fallback when a site refuses our direct fetch (bot protection, TLS errors):
+    let Gemini's URL context tool read the page and return the recipe as plain text."""
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=(f"Read the recipe at {url} and return its full text: title, servings, the "
+                  "complete ingredient list with quantities, every instruction step, and notes. "
+                  "Plain text only, no commentary. If there is a main photo, add a line "
+                  "'Image URL: <url>'."),
+        config=types.GenerateContentConfig(tools=[types.Tool(url_context=types.UrlContext())]),
+    )
+    text = (response.text or "").strip()
+    if len(text) < 100:
+        raise ValueError("Could not read the recipe page")
+    return text
+
 def _clean_html_for_llm(html_content: str) -> str:
     """Clean HTML content to make it more suitable for LLM processing."""
     soup = BeautifulSoup(html_content, "html.parser")
@@ -327,8 +343,12 @@ def extract_recipe(
         content = text or ""
     elif url:
         source = url
-        raw_content = _fetch_url(url)
-        content = _extract_main_content(raw_content)
+        try:
+            content = _extract_main_content(_fetch_url(url))
+        except ValueError:
+            logger.info("Direct fetch of %s failed; reading it with Gemini URL context", url)
+            notify(type="fetch_fallback", max_attempts=MAX_RETRIES)
+            content = _read_url_with_gemini(client, url)
         logger.debug(f"Fetched content from URL {url}: Length: {len(content)}")
     else:
         source = "pasted text"

@@ -162,6 +162,7 @@
         const tag = `Attempt ${ev.attempt}/${ev.max_attempts}`;
         const issues = n => `${n} issue${n === 1 ? '' : 's'}`;
         switch (ev.type) {
+            case 'fetch_fallback': return 'The site blocked a direct download. Reading it through Gemini instead...';
             case 'attempt_start': return `${tag}: reading the recipe...`;
             case 'validation_failed': return `${tag}: ${issues(ev.errors.length)} found, retrying...`;
             case 'retry': return `${tag}: ${ev.reason}. Retrying...`;
@@ -288,6 +289,14 @@
         show($('importPreview'), false);
         show($('importProgress'), false);
     });
+
+    // /import?url=... (the Import button on chat web results) starts right away.
+    const linked = new URLSearchParams(location.search).get('url');
+    if (linked && !$('extractBtn').disabled) {
+        document.querySelector('#modeToggle [data-mode="url"]').click();
+        $('recipeUrl').value = linked;
+        $('extractBtn').click();
+    }
 })();
 </script>
 {% endblock %}

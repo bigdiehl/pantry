@@ -34,6 +34,7 @@ Disk
 | `recipe_core/foods.py` | Food registry: exact/fuzzy lookup, CRUD on `foods.yaml` (ruamel, keeps comments) |
 | `recipe_core/gemini_importer.py` | URL/text/photo to `recipe.yaml` + `recipe.md`, validate, retry |
 | `recipe_core/recipe_chat.py` | Chat turn: catalog prompt, structured JSON reply |
+| `recipe_core/recipe_search.py` | Web recipe search: Gemini + Google Search, schema.org Recipe parsing |
 | `recipe_core/push.py` | VAPID keys, subscription store, `send_all` |
 | `recipe_core/mailer.py` | SMTP message building and sending |
 

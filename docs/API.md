@@ -50,8 +50,12 @@ JSON unless noted. Routes that need a missing API key return 503 with `{error}`.
 
 ## Chat
 
-`POST /chat/message` `{messages: [{role: user/assistant, text}]}` ->
-`{reply, reply_html, recipes: [{slug, name, reason, selected}], ideas: [{name, summary}]}`
+`POST /chat/message` `{messages: [{role: user/assistant, text}], search?: str}` ->
+`{reply, reply_html, recipes: [{slug, name, reason, selected, image_url}], offer_search,
+offer_query, web_query, web_recipes: [{title, url, site, image, summary, total_time}]}`.
+With `search`, the model turn is skipped and the web search runs directly.
+
+`/import?url=<url>` opens the import page in Link mode and starts extracting.
 
 ## Weekly plan
 

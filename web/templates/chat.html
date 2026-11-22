@@ -19,7 +19,7 @@
                 <button class="pill-btn starter">What haven't we had in a while?</button>
                 <button class="pill-btn starter">I have chicken, rice, and peppers</button>
                 <button class="pill-btn starter">Something quick for tonight</button>
-                <button class="pill-btn starter">Suggest a new vegetarian dinner</button>
+                <button class="pill-btn starter">Find a new vegetarian dinner recipe</button>
             </div>
         </div>
         {% endif %}
@@ -51,7 +51,7 @@
     const newBtn = document.getElementById('newChat');
     const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    // [{role: 'user'|'assistant', text, html?, recipes?, ideas?}]
+    // [{role: 'user'|'assistant', text, html?, recipes?, web?, offer?}]
     let messages = [];
     let busy = false;
 
@@ -59,9 +59,12 @@
 
     function save() { sessionStorage.setItem(STORE, JSON.stringify(messages)); }
 
-    function cardsHtml(m) {
+    function cardsHtml(m, isLast) {
         const recipes = (m.recipes || []).map(r => `
             <div class="suggest-card">
+                ${r.image_url
+                    ? `<a href="/recipes_list?recipe=${encodeURIComponent(r.name)}"><img class="suggest-thumb" src="${esc(r.image_url)}" alt="" loading="lazy"></a>`
+                    : '<span class="suggest-thumb suggest-thumb-empty"></span>'}
                 <div class="suggest-card-text">
                     <div class="suggest-card-tag">Your recipe</div>
                     <a class="suggest-card-name" href="/recipes_list?recipe=${encodeURIComponent(r.name)}">${esc(r.name)}</a>
@@ -69,16 +72,33 @@
                 </div>
                 <button class="pill-btn add-btn${r.selected ? ' on' : ''}" data-slug="${esc(r.slug)}">${r.selected ? CHECK + ' On list' : '+ Add'}</button>
             </div>`).join('');
-        const ideas = (m.ideas || []).map(i => `
-            <div class="suggest-card">
-                <div class="suggest-card-text">
-                    <div class="suggest-card-tag">New idea</div>
-                    <div class="suggest-card-name">${esc(i.name)}</div>
-                    <div class="suggest-card-note">${esc(i.summary)}</div>
+        const web = (m.web || []).map(w => `
+            <div class="suggest-card web-card">
+                ${w.image
+                    ? `<a href="${esc(w.url)}" target="_blank" rel="noopener"><img class="web-photo" src="${esc(w.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('a').remove()"></a>`
+                    : ''}
+                <div class="web-card-body">
+                    <div class="suggest-card-text">
+                        <div class="suggest-card-tag">${esc(w.site)}${w.total_time ? ' &middot; ' + esc(w.total_time) : ''}</div>
+                        <a class="suggest-card-name" href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.title)}</a>
+                        ${w.summary ? `<div class="suggest-card-note">${esc(w.summary)}</div>` : ''}
+                    </div>
+                    <a class="pill-btn" href="/import?url=${encodeURIComponent(w.url)}">Import</a>
                 </div>
-                <a class="pill-btn" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent(i.name + ' recipe')}">Find</a>
             </div>`).join('');
-        return recipes || ideas ? `<div class="msg-cards">${recipes}${ideas}</div>` : '';
+        const cards = recipes || web ? `<div class="msg-cards">${recipes}${web}</div>` : '';
+        const offer = m.offer && isLast
+            ? '<div class="mt-2"><button class="pill-btn search-btn">Look for new recipes</button></div>' : '';
+        return cards + offer;
+    }
+
+    // What the model sees for an assistant turn: its reply plus the cards shown,
+    // so follow-ups like "more like the second one" make sense.
+    function contextText(m) {
+        let t = m.text || '';
+        if (m.recipes && m.recipes.length) t += '\n[Saved recipes shown: ' + m.recipes.map(r => r.name).join('; ') + ']';
+        if (m.web && m.web.length) t += '\n[Web recipes shown: ' + m.web.map(w => `${w.title} (${w.site})`).join('; ') + ']';
+        return t;
     }
 
     function render() {
@@ -87,22 +107,23 @@
         if (intro) intro.hidden = messages.length > 0;
         newBtn.hidden = messages.length === 0;
         log.querySelectorAll('.msg').forEach(el => el.remove());
-        for (const m of messages) {
+        messages.forEach((m, i) => {
             const div = document.createElement('div');
             if (m.role === 'user') {
                 div.className = 'msg msg-user';
                 div.textContent = m.text;
             } else {
                 div.className = 'msg msg-bot' + (m.error ? ' msg-error' : '');
-                div.innerHTML = (m.html || esc(m.text)) + cardsHtml(m);
+                div.innerHTML = (m.html || esc(m.text)) + cardsHtml(m, i === messages.length - 1);
             }
             log.appendChild(div);
-        }
+        });
         if (busy) {
             const div = document.createElement('div');
             div.className = 'msg msg-bot';
-            div.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+            div.innerHTML = '<span class="typing"><span></span><span></span><span></span></span><div class="small text-muted slow-note" hidden>Searching recipe sites, this takes a few seconds...</div>';
             log.appendChild(div);
+            setTimeout(() => { const n = div.querySelector('.slow-note'); if (n) n.hidden = false; }, 3500);
         }
         window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
@@ -113,7 +134,7 @@
         sendBtn.disabled = busy || !input.value.trim();
     }
 
-    async function send(text) {
+    async function send(text, search) {
         text = text.trim();
         if (!text || busy) return;
         stopListening();
@@ -129,11 +150,11 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 // Errors are UI-only; don't send them back to the model.
-                body: JSON.stringify({ messages: messages.filter(m => !m.error).map(m => ({ role: m.role, text: m.text })) }),
+                body: JSON.stringify({ search: search || null, messages: messages.filter(m => !m.error).map(m => ({ role: m.role, text: m.role === 'assistant' ? contextText(m) : m.text })) }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-            messages.push({ role: 'assistant', text: data.reply, html: data.reply_html, recipes: data.recipes, ideas: data.ideas });
+            messages.push({ role: 'assistant', text: data.reply, html: data.reply_html, recipes: data.recipes, web: data.web_recipes, offer: data.offer_search, offerQuery: data.offer_query });
         } catch (err) {
             messages.push({ role: 'assistant', text: navigator.onLine ? err.message : 'You are offline. Chat needs a connection.', error: true });
         } finally {
@@ -148,6 +169,11 @@
     log.addEventListener('click', async (e) => {
         const starter = e.target.closest('.starter');
         if (starter) { send(starter.textContent); return; }
+        if (e.target.closest('.search-btn')) {
+            const last = messages[messages.length - 1] || {};
+            send('Look for new recipes', last.offerQuery || null);
+            return;
+        }
         const btn = e.target.closest('.add-btn');
         if (!btn) return;
         try {

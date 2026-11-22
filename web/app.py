@@ -32,7 +32,8 @@ from recipe_core.shopping_list import (
 )
 from recipe_core.mailer import build_message, send_email
 from recipe_core.gemini_importer import extract_recipe, ImportResult, MAX_RETRIES
-from recipe_core.recipe_chat import build_catalog, chat as recipe_chat
+from recipe_core.recipe_chat import ChatReply, build_catalog, chat as recipe_chat, make_client
+from recipe_core.recipe_search import search_recipes
 from recipe_core.push import PushStore
 
 logger = logging.getLogger(__name__)
@@ -1249,6 +1250,17 @@ def chat_page():
     return render_template("chat.html", active_page="chat", chat_enabled=IMPORT_ENABLED,
                            email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
 
+def _recipe_thumbnail(recipe: Recipe) -> str | None:
+    """URL of a saved recipe's photo: image.* if present, else any image file in its folder."""
+    recipe_dir = osp.join(RECIPES_DIR, recipe.path)
+    try:
+        name = _find_recipe_image(recipe_dir) or next(
+            (f for f in sorted(os.listdir(recipe_dir))
+             if osp.splitext(f)[1].lower() in ALLOWED_IMAGE_EXTENSIONS), None)
+    except OSError:
+        return None
+    return f"/recipes/{recipe.slug}/{name}" if name else None
+
 def _chat_catalog() -> tuple[str, dict]:
     """Compact catalog of saved recipes for the chat prompt, plus slug -> Recipe."""
     state = _load_state()
@@ -1272,10 +1284,16 @@ def _chat_catalog() -> tuple[str, dict]:
 def chat_message():
     if not IMPORT_ENABLED:
         return jsonify({"error": "Chat needs GEMINI_API_KEY to be set on the server."}), 503
-    messages = (request.get_json(silent=True) or {}).get("messages") or []
+    body = request.get_json(silent=True) or {}
+    messages = body.get("messages") or []
     catalog, by_slug = _chat_catalog()
     try:
-        result = recipe_chat(messages, catalog, api_key=GEMINI_API_KEY)
+        if str(body.get("search") or "").strip():
+            # "Look for new recipes" button: the query came with the offer, skip a model turn.
+            result = ChatReply(reply="Here are some recipes from around the web:",
+                               web_search=str(body["search"]).strip()[:200])
+        else:
+            result = recipe_chat(messages, catalog, api_key=GEMINI_API_KEY)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -1288,14 +1306,31 @@ def chat_message():
         if recipe and pick.slug not in seen:
             seen.add(pick.slug)
             picks.append({"slug": recipe.slug, "name": recipe.name, "reason": pick.reason,
-                          "selected": recipe.selected})
+                          "selected": recipe.selected, "image_url": _recipe_thumbnail(recipe)})
+
+    web = []
+    if result.web_search:
+        try:
+            web = [r.model_dump() for r in web_recipe_search(result.web_search, exclude=[r.name for r in by_slug.values()])]
+        except Exception as e:
+            logger.exception("Web recipe search failed")
+            result.reply += f"\n\n(The web search failed: {type(e).__name__}. Try again in a moment.)"
+        if result.web_search and not web and "search failed" not in result.reply:
+            result.reply += "\n\nI couldn't find recipe pages for that. Try describing it differently."
 
     return jsonify({
         "reply": result.reply,
         "reply_html": markdown.markdown(html_escape(result.reply), extensions=["sane_lists", "nl2br"]),
         "recipes": picks,
-        "ideas": [i.model_dump() for i in result.ideas],
+        "offer_search": result.offer_search and not result.web_search,
+        "offer_query": result.offer_query,
+        "web_query": result.web_search,
+        "web_recipes": web,
     })
+
+def web_recipe_search(query: str, exclude: list[str] | None = None):
+    """Real recipe pages for `query` (Gemini + Google Search). Patched in tests."""
+    return search_recipes(query, make_client(GEMINI_API_KEY), exclude=exclude)
 
 # ---------------------------------------------------------------------------
 # Routes — Recipe Editor
