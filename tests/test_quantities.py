@@ -38,3 +38,28 @@ def test_parse_quantity_rejects_garbage():
 ])
 def test_float_to_frac(value, expected):
     assert _float_to_frac(value) == expected
+
+
+@pytest.mark.parametrize("raw, magnitude, unit", [
+    ("1 1/4 cups", 1.25, "cup"),        # Pint alone reads this as 1 * 1/4
+    ("1-1/4 cups", 1.25, "cup"),
+    ("2 1/2", 2.5, "dimensionless"),
+    ("½ teaspoon", 0.5, "teaspoon"),
+    ("1½ cups", 1.5, "cup"),
+    ("1 ¾ cup", 1.75, "cup"),
+])
+def test_parse_mixed_numbers_and_unicode_fractions(raw, magnitude, unit):
+    q = parse_quantity(raw)
+    assert q.magnitude == pytest.approx(magnitude)
+    assert str(q.units) == unit
+
+
+def test_bad_quantity_does_not_break_shopping_list(tmp_path):
+    from recipe_core.shopping_list import get_shopping_list_data
+    d = tmp_path / "recipes" / "odd"
+    d.mkdir(parents=True)
+    (d / "recipe.yaml").write_text(
+        "name: Odd\nservings: 2\nmeal: dinner\ncategory: entree\n"
+        "ingredients:\n  - food: onion\n    quantity: a handful of\n  - food: milk\n    quantity: 1 cup\n")
+    lists, _ = get_shopping_list_data(str(tmp_path / "recipes"))
+    assert [i.quantity for i in lists["odd"]][0] is None

@@ -78,6 +78,10 @@ in a recipe degrades to an uncategorized item instead of breaking the list.
 
 - Parsed with Pint (`parse_quantity`). `"3"` is dimensionless; unknown units
   (`"2 zorbles"`) are registered on the fly as their own base unit.
+- `normalize_quantity` runs first: unicode fractions (`½`) become `1/2`, and mixed numbers
+  (`1 1/4`, `1-1/4`, `1½`) become decimals. Pint alone reads `1 1/4` as 1 x 1/4 = 0.25.
+- A quantity that still can't be parsed becomes "unspecified" with a warning instead of
+  failing the whole shopping list.
 - Custom base units: `bundle`, `can(s)`, `tub(s)`, `bunch`, `clove(s)`, `slice(s)`, `na`.
 - `MergedIngredient` keeps one `QuantityGroup` per incompatible unit family:
   `1 cup + 0.5 cup = 1 1/2 cup`, but `1 cup + 2 cans` stays as two parts.

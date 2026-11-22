@@ -55,7 +55,12 @@ def _recipe_data_to_ingredients(recipe_data: RecipeData, slug: str) -> List[Ingr
     ingredients = []
     for item in recipe_data.ingredients:
         food = get_food(item.food)
-        quantity = parse_quantity(item.quantity)
+        try:
+            quantity = parse_quantity(item.quantity)
+        except Exception as e:
+            # One odd quantity must not take down the whole list; show it as unspecified.
+            logger.warning("Recipe '%s': can't parse quantity %r for %s (%s)", slug, item.quantity, item.food, e)
+            quantity = None
         ingredients.append(Ingredient(food=food, quantity=quantity, source=slug))
     return ingredients
 

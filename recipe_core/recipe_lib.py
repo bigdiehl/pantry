@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from enum import Enum
 from typing import Optional, List, Union
 
@@ -50,6 +51,29 @@ def _register_unit(name: Union[str, List[str]]):
         logger.debug("Registered new unit: '%s'", name)
         
         
+_VULGAR_FRACTIONS = {
+    "½": "1/2", "⅓": "1/3", "⅔": "2/3", "¼": "1/4", "¾": "3/4", "⅕": "1/5", "⅖": "2/5",
+    "⅗": "3/5", "⅘": "4/5", "⅙": "1/6", "⅚": "5/6", "⅛": "1/8", "⅜": "3/8", "⅝": "5/8", "⅞": "7/8",
+}
+_MIXED_NUMBER = re.compile(r"^(\d+)\s*[-\s]\s*(\d+)\s*/\s*(\d+)")
+
+
+def normalize_quantity(raw: str) -> str:
+    """Rewrite forms Pint misreads: '1½' / '1 1/2' / '1-1/2' -> '1.5', '½' -> '1/2'.
+    Pint treats '1 1/2' as 1 * 1/2 = 0.5, so mixed numbers must become decimals."""
+    s = raw.strip()
+    for char, frac in _VULGAR_FRACTIONS.items():
+        s = re.sub(rf"(\d)\s*{char}", rf"\1 {frac}", s)   # '1½' -> '1 1/2'
+        s = s.replace(char, frac)
+    m = _MIXED_NUMBER.match(s)
+    if m:
+        whole, num, den = (int(g) for g in m.groups())
+        if den:
+            value = whole + num / den
+            s = f"{value:g}" + s[m.end():]
+    return s
+
+
 def parse_quantity(raw: str):
     """
     Parse a quantity string into a Pint Quantity, or return None if unspecified.
@@ -60,7 +84,7 @@ def parse_quantity(raw: str):
         "3"         → Quantity(3, 'dimensionless')       (dimensionless)
         ""          → None                               (unspecified)
     """
-    raw = raw.strip()
+    raw = normalize_quantity(raw or "")
     if not raw:
         return None
 
