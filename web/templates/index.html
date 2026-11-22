@@ -3,759 +3,315 @@
 {% block title %}Shopping List{% endblock %}
 
 {% block content %}
-<style>
-    .shopping-container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 20px;
-    }
-
-    .shopping-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-    }
-
-    .shopping-header h2 {
-        margin: 0;
-    }
-
-    .recipe-item {
-        padding: 6px 8px;
-        border-bottom: 1px solid #f0f0f0;
-    }
-
-    .recipe-item:last-child {
-        border-bottom: none;
-    }
-
-    /* Two rows always (not just on narrow screens): the ingredient name gets
-       its own full-width line, quantity + Add share the line below. Flex
-       items default to min-width:auto (their content size), which is what
-       let this form push the page wider than the viewport before - the
-       explicit min-width:0 below is what actually fixes that. */
-    .add-item-form {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-bottom: 20px;
-    }
-
-    .add-item-form input {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-    }
-
-    .add-item-form-row2 {
-        display: flex;
-        gap: 10px;
-    }
-
-    .add-item-form-row2 input {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .add-item-form-row2 button {
-        flex: none;
-    }
-
-    .list-section-title {
-        margin-bottom: 10px;
-    }
-
-    .shopping-table-wrap {
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        overflow: hidden;
-        overflow-x: auto;
-        margin-bottom: 30px;
-    }
-
-    table.shopping-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    .shopping-table th,
-    .shopping-table td {
-        padding: 10px 12px;
-        text-align: left;
-        border-bottom: 1px solid #f0f0f0;
-    }
-
-    .shopping-table th {
-        background-color: #f8f9fa;
-        border-bottom: 1px solid #ddd;
-        white-space: nowrap;
-    }
-
-    .shopping-table th.sortable {
-        cursor: pointer;
-        user-select: none;
-    }
-
-    .shopping-table th.sortable:hover {
-        background-color: #e9ecef;
-    }
-
-    .sort-arrow {
-        color: #007bff;
-        margin-left: 4px;
-    }
-
-    .shopping-table tbody tr:last-child td {
-        border-bottom: none;
-    }
-
-    .shopping-table tr.checked {
-        opacity: 0.5;
-    }
-
-    .shopping-table tr.checked .item-text {
-        text-decoration: line-through;
-    }
-
-    .item-checkbox {
-        width: 20px;
-        height: 20px;
-        cursor: pointer;
-    }
-
-    .category-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 12px;
-        background-color: #e9ecef;
-        font-size: 0.85em;
-        font-weight: 500;
-    }
-
-    .item-remove {
-        background: none;
-        border: none;
-        color: #dc3545;
-        cursor: pointer;
-        padding: 2px 8px;
-        font-size: 18px;
-    }
-
-    .item-remove:hover {
-        color: #c82333;
-    }
-
-    .col-check {
-        width: 40px;
-    }
-
-    .col-remove {
-        width: 40px;
-        text-align: center;
-    }
-
-    .empty-state td {
-        text-align: center;
-        color: #666;
-        padding: 20px;
-    }
-
-    /* Main List / Likely to Have rows open the ingredient detail popup when
-       clicked anywhere except the checkbox or remove button. */
-    .item-text.clickable {
-        cursor: pointer;
-    }
-
-    .item-text.clickable:hover {
-        text-decoration: underline;
-        text-decoration-style: dotted;
-    }
-
-    #ingredientDetailSources {
-        padding-left: 1.2rem;
-    }
-
-    /*
-     * Mobile-only "swipe to delete" row. Rendered instead of the plain
-     * checkbox/name/category/qty/remove row when the viewport is narrow
-     * (see isMobile() in the script below). The row's content sits in a
-     * horizontally-scrollable strip with the delete button snapped just
-     * off-screen to the right; swiping left scrolls it into view.
-     */
-    .swipe-cell {
-        padding: 0 !important;
-    }
-
-    .swipe-row {
-        display: flex;
-        overflow-x: auto;
-        scroll-snap-type: x mandatory;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-    }
-
-    .swipe-row::-webkit-scrollbar {
-        display: none;
-    }
-
-    .swipe-content {
-        flex: none;
-        width: 100%;
-        scroll-snap-align: start;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 12px;
-        background: #fff;
-    }
-
-    .swipe-content .item-qty {
-        color: #666;
-        font-size: 0.85em;
-        white-space: nowrap;
-    }
-
-    .swipe-delete {
-        flex: none;
-        width: 90px;
-        scroll-snap-align: start;
-        border: none;
-        background-color: #dc3545;
-        color: #fff;
-        font-weight: 600;
-        font-size: 14px;
-        cursor: pointer;
-    }
-
-    @media (max-width: 600px) {
-        .shopping-container {
-            padding: 10px;
-        }
-    }
-</style>
-
-<div class="shopping-container">
-    <div class="shopping-header">
-        <h2>Shopping List</h2>
-    </div>
-
-    <h5 class="mb-2">Add Ingredients</h5>
-    <div class="add-item-form">
-        <input type="text" id="new-item-name" placeholder="Add item (e.g., milk, bread)...">
-        <div class="add-item-form-row2">
-            <input type="text" id="new-item-quantity" placeholder="Quantity">
-            <button class="btn btn-primary" onclick="addCustomItem()">Add</button>
+<div class="page">
+    <div class="page-header">
+        <div>
+            <h1>Shopping list</h1>
+            <div class="meta" id="remainingCount"></div>
+        </div>
+        <div class="dropdown">
+            <button class="icon-btn" data-bs-toggle="dropdown" aria-label="List options">
+                <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><button class="dropdown-item" onclick="uncheckAll()">Uncheck everything</button></li>
+                <li><button class="dropdown-item" onclick="restoreRemoved()">Restore removed items</button></li>
+                <li><button class="dropdown-item" onclick="clearCustom()">Clear my added items</button></li>
+            </ul>
         </div>
     </div>
 
-    <div class="mb-3">
-        <h5 class="mb-2">Selected Recipes</h5>
-        <div class="list-group py-2 px-2 border" style="max-height: 20vh; overflow-y: auto;">
-            {% if recipes %}
-                {% for recipe in recipes %}
-                <div class="recipe-item d-flex align-items-center justify-content-between" data-slug="{{ recipe.slug }}">
-                    <span>{{ recipe.name }}</span>
-                    <button
-                        type="button"
-                        class="btn btn-danger btn-sm remove-recipe"
-                        data-id="{{ recipe.slug }}"
-                        title="Remove this recipe">
-                            &minus;
-                    </button>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div class="p-2 text-muted">
-                    <em>No recipes selected. Go to the Recipes page to add some.</em>
-                </div>
-            {% endif %}
-        </div>
+    <div class="chip-row" aria-label="Selected recipes">
+        {% for recipe in recipes %}
+        <span class="chip">{{ recipe.name }}<button type="button" class="remove-recipe" data-slug="{{ recipe.slug }}" aria-label="Remove {{ recipe.name }}">&times;</button></span>
+        {% endfor %}
+        <a class="chip chip-add" href="{{ url_for('recipes_list') }}">+ {{ 'Recipes' if recipes else 'Pick recipes' }}</a>
     </div>
 
-    <div class="mb-3 d-flex align-items-center gap-2 flex-wrap" id="vendorFilterBar" style="display: none;">
-        <label for="vendorFilter" class="mb-0 fw-bold">Filter by vendor:</label>
-        <select id="vendorFilter" class="form-select form-select-sm" style="width: auto;">
-            <option value="">All Vendors</option>
+    <form class="add-bar" onsubmit="addCustomItem(event)">
+        <input type="text" id="newItem" class="form-control" placeholder="Add item, e.g. milk, 1 gal" autocomplete="off" enterkeyhint="done">
+        <button class="btn btn-primary" type="submit">Add</button>
+    </form>
+
+    <div class="list-tools" id="vendorBar" hidden>
+        <span class="text-muted small">Store</span>
+        <select id="vendorFilter" class="form-select form-select-sm">
+            <option value="">All stores</option>
         </select>
     </div>
 
-    <h5 class="list-section-title">My Items</h5>
-    <div class="shopping-table-wrap">
-        <table class="shopping-table">
-            <thead>
-                <tr>
-                    <th class="col-check"></th>
-                    <th class="sortable" onclick="setSort('custom', 'name')">Name<span class="sort-arrow" id="arrow-custom-name"></span></th>
-                    <th>Quantity</th>
-                    <th class="col-remove"></th>
-                </tr>
-            </thead>
-            <tbody id="shopping-list-custom">
-                <!-- Manually added rows will be dynamically populated -->
-            </tbody>
-        </table>
-    </div>
+    <div id="list"></div>
 
-    <h5 class="list-section-title">Main List</h5>
-    <div class="shopping-table-wrap">
-        <table class="shopping-table">
-            <thead>
-                <tr>
-                    <th class="col-check"></th>
-                    <th class="sortable" onclick="setSort('main', 'name')">Name<span class="sort-arrow" id="arrow-main-name"></span></th>
-                    <th class="sortable" onclick="setSort('main', 'category')">Category<span class="sort-arrow" id="arrow-main-category"></span></th>
-                    <th>Quantity</th>
-                    <th class="col-remove"></th>
-                </tr>
-            </thead>
-            <tbody id="shopping-list-main">
-                <!-- Main list rows will be dynamically populated -->
-            </tbody>
-        </table>
-    </div>
-
-    <h5 class="list-section-title">Likely to Already Have</h5>
-    <div class="shopping-table-wrap">
-        <table class="shopping-table">
-            <thead>
-                <tr>
-                    <th class="col-check"></th>
-                    <th class="sortable" onclick="setSort('secondary', 'name')">Name<span class="sort-arrow" id="arrow-secondary-name"></span></th>
-                    <th class="sortable" onclick="setSort('secondary', 'category')">Category<span class="sort-arrow" id="arrow-secondary-category"></span></th>
-                    <th>Quantity</th>
-                    <th class="col-remove"></th>
-                </tr>
-            </thead>
-            <tbody id="shopping-list-secondary">
-                <!-- 'Likely to have' rows will be dynamically populated -->
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Ingredient detail popup: which recipes it came from + preferred vendor -->
-    <div class="modal fade" id="ingredientDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="itemModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="ingredientDetailName"></h5>
+                    <h5 class="modal-title" id="itemModalName"></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="mb-2"><strong>Quantity:</strong> <span id="ingredientDetailQty"></span></p>
-                    <p class="mb-3" id="ingredientDetailVendorWrap" style="display: none;">
-                        <strong>Preferred vendor:</strong> <span id="ingredientDetailVendor"></span>
-                        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="ingredientDetailVendorFilterBtn">View all from this vendor</button>
-                    </p>
-                    <div>
-                        <strong>From recipes:</strong>
-                        <ul id="ingredientDetailSources" class="mb-0"></ul>
+                    <p class="mb-2" id="itemModalQty"></p>
+                    <p class="mb-2" id="itemModalVendor" hidden></p>
+                    <div id="itemModalSourcesWrap">
+                        <div class="text-muted small mb-1">From</div>
+                        <ul id="itemModalSources" class="mb-0 ps-3"></ul>
                     </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-danger" id="itemModalRemove">Remove from list</button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-// Ingredients merged from the currently selected recipes, split like the
-// real Shopping List page into 'main' (things to buy) and 'secondary'
-// (likely already have), each grouped by category:
-// { main: { "Dairy": [{ name, quantity }, ...], ... }, secondary: { ... } }
+// { main: {Category: [{name, quantity, vendor, sources}]}, secondary: {...} }
 const SERVER_ITEMS = {{ shopping_items | tojson }};
-
 const STORAGE_KEY = 'shopping_list_table_state';
+// Changes each time the weekly plan runs; a new plan starts a fresh checklist.
+const WEEK_ID = {{ week_id | tojson }};
 
-// Client-side-only state layered on top of the server-generated ingredient
-// lists: which rows are checked off, which have been dismissed from view,
-// and any manually added extra items (shown in their own 'My Items' section).
-// Identified by "CATEGORY::name" for real ingredients, and by index for
-// custom items.
+// Client-only state layered over the server list. Real ingredients are keyed
+// "Category::name"; custom items live in their own array.
 let checkedKeys = new Set();
 let dismissedKeys = new Set();
 let customItems = [];
-
-// Selected vendor filter ('' = all vendors). Only applies to the
-// recipe-derived main/secondary sections - custom items have no vendor.
 let vendorFilter = '';
-
-// rowId -> {name, quantity, vendor, sources} for the currently-rendered
-// main/secondary rows, so the detail popup can look up what was clicked.
 let itemIndex = {};
 
-// Independent sort state per section. 'custom' has no category column, so it
-// only ever sorts by name.
-const sortState = {
-    main: { field: 'category', dir: 'asc' },
-    secondary: { field: 'category', dir: 'asc' },
-    custom: { field: 'name', dir: 'asc' }
-};
+const CHECK_SVG = '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const INFO_SVG = '<svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+const CHEV_SVG = '<svg class="chev" viewBox="0 0 24 24" width="14" height="14"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-// Which sections show a category column/badge — the recipe-derived sections
-// do, the manually-added 'custom' section doesn't (items have no category).
-const SHOW_CATEGORY = {
-    main: true,
-    secondary: true,
-    custom: false
-};
-
-const EMPTY_MESSAGES = {
-    main: 'No ingredients yet. Select some recipes to build a shopping list, or add an item above.',
-    secondary: 'Nothing here yet — items your recipes call for that you likely already have will show up here.',
-    custom: 'No items added yet. Use the form above to add something not covered by your recipes.'
-};
-
-function rowKey(category, name) {
-    return `${category}::${name}`;
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 }
 
-// Below this width, rows render with a swipe-to-delete gesture instead of an
-// always-visible remove button (see renderRow()).
-const MOBILE_QUERY = window.matchMedia('(max-width: 600px)');
-function isMobile() {
-    return MOBILE_QUERY.matches;
-}
-
-// Load checked/dismissed/custom state from localStorage
 function loadState() {
     try {
-        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
-        if (stored) {
-            checkedKeys = new Set(stored.checked || []);
-            dismissedKeys = new Set(stored.dismissed || []);
-            customItems = stored.custom || [];
+        const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (s) {
+            checkedKeys = new Set(s.checked || []);
+            dismissedKeys = new Set(s.dismissed || []);
+            customItems = s.custom || [];
+            if (WEEK_ID && s.week !== WEEK_ID) {
+                checkedKeys.clear();
+                dismissedKeys.clear();
+                customItems.forEach(i => { i.checked = false; });
+            }
         }
-    } catch (e) {
-        // Ignore corrupt/missing storage and start fresh
-    }
+    } catch (e) { /* start fresh */ }
 }
 
-// Save checked/dismissed/custom state to localStorage
 function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        checked: Array.from(checkedKeys),
-        dismissed: Array.from(dismissedKeys),
-        custom: customItems
+        checked: [...checkedKeys], dismissed: [...dismissedKeys], custom: customItems, week: WEEK_ID
     }));
 }
 
-// Flatten one section into an array of rows for its table. 'main' and
-// 'secondary' come from the server-generated ingredient lists (minus
-// dismissed rows); 'custom' is the manually-added items, kept in their own
-// list separate from the recipe-derived ones.
-function getFlatItems(section) {
-    if (section === 'custom') {
-        return customItems.map((item, index) => ({
-            name: item.name,
-            quantity: item.quantity,
-            checked: !!item.checked,
-            rowId: `custom-${index}`
-        }));
-    }
-
-    const flat = [];
+// Visible items of one server section, grouped by category, minus dismissed/filtered.
+function sectionItems(section) {
+    const out = [];
     const groups = SERVER_ITEMS[section] || {};
-
-    for (const category in groups) {
-        groups[category].forEach(item => {
-            const key = rowKey(category, item.name);
-            if (dismissedKeys.has(key)) return;
-            if (vendorFilter && (item.vendor || '') !== vendorFilter) return;
-            itemIndex[key] = item;
-            flat.push({
-                name: item.name,
-                quantity: item.quantity,
-                category: category,
-                checked: checkedKeys.has(key),
-                rowId: key
-            });
-        });
-    }
-
-    return flat;
-}
-
-// Render a single ingredient row. On mobile, use a swipe-to-delete strip
-// instead of an always-visible remove button, to save space on narrow screens.
-// showCategory controls whether the category column/badge is included (off
-// for the 'custom' section, whose items have no category).
-function renderRow(item, showCategory, clickable) {
-    const checkedClass = item.checked ? 'checked' : '';
-    const checkboxAttr = item.checked ? 'checked' : '';
-    const categoryBadge = `<span class="category-badge">${item.category}</span>`;
-    const nameAttrs = clickable ? ` class="item-text clickable" onclick="showIngredientDetail('${item.rowId}')"` : ' class="item-text"';
-
-    if (isMobile()) {
-        return `
-            <tr class="${checkedClass}">
-                <td class="swipe-cell" colspan="${showCategory ? 5 : 4}">
-                    <div class="swipe-row">
-                        <div class="swipe-content">
-                            <input type="checkbox" class="item-checkbox"
-                                   ${checkboxAttr}
-                                   onchange="toggleItem('${item.rowId}')">
-                            <span${nameAttrs}>${item.name}</span>
-                            ${showCategory ? categoryBadge : ''}
-                            <span class="item-qty">${item.quantity || ''}</span>
-                        </div>
-                        <button class="swipe-delete" onclick="removeItem('${item.rowId}')">Delete</button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }
-
-    return `
-        <tr class="${checkedClass}">
-            <td class="col-check">
-                <input type="checkbox" class="item-checkbox"
-                       ${checkboxAttr}
-                       onchange="toggleItem('${item.rowId}')">
-            </td>
-            <td><span${nameAttrs}>${item.name}</span></td>
-            ${showCategory ? `<td>${categoryBadge}</td>` : ''}
-            <td>${item.quantity || ''}</td>
-            <td class="col-remove">
-                <button class="item-remove" onclick="removeItem('${item.rowId}')" title="Remove item">×</button>
-            </td>
-        </tr>
-    `;
-}
-
-// Update the sort-arrow indicators in one section's column headers. The
-// 'custom' section has no category column/arrow, hence the null check.
-function updateSortArrows(section) {
-    const state = sortState[section];
-    document.getElementById(`arrow-${section}-name`).textContent = state.field === 'name' ? (state.dir === 'asc' ? '▲' : '▼') : '';
-    const categoryArrow = document.getElementById(`arrow-${section}-category`);
-    if (categoryArrow) {
-        categoryArrow.textContent = state.field === 'category' ? (state.dir === 'asc' ? '▲' : '▼') : '';
-    }
-}
-
-// Set a section's sort field, toggling direction if the same field is clicked again
-function setSort(section, field) {
-    const state = sortState[section];
-    if (state.field === field) {
-        state.dir = state.dir === 'asc' ? 'desc' : 'asc';
-    } else {
-        state.field = field;
-        state.dir = 'asc';
-    }
-    renderAll();
-}
-
-// Render one section's table
-function renderSection(section) {
-    const tbody = document.getElementById(`shopping-list-${section}`);
-    const state = sortState[section];
-    const showCategory = SHOW_CATEGORY[section];
-    const clickable = section !== 'custom';
-
-    const flat = getFlatItems(section);
-
-    flat.sort((a, b) => {
-        const aPrimary = (state.field === 'name' ? a.name : a.category).toLowerCase();
-        const bPrimary = (state.field === 'name' ? b.name : b.category).toLowerCase();
-        let cmp = aPrimary.localeCompare(bPrimary);
-        if (cmp === 0) {
-            // Stable secondary sort by name so ties order consistently
-            cmp = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    for (const category of Object.keys(groups).sort()) {
+        for (const item of groups[category]) {
+            const key = `${category}::${item.name}`;
+            if (dismissedKeys.has(key)) continue;
+            if (vendorFilter && (item.vendor || '') !== vendorFilter) continue;
+            itemIndex[key] = { ...item, key, category };
+            out.push({ key, name: item.name, quantity: item.quantity, category, checked: checkedKeys.has(key) });
         }
-        return state.dir === 'asc' ? cmp : -cmp;
-    });
+    }
+    return out;
+}
 
-    if (flat.length === 0) {
-        tbody.innerHTML = `
-            <tr class="empty-state">
-                <td colspan="${showCategory ? 5 : 4}">${EMPTY_MESSAGES[section]}</td>
-            </tr>
-        `;
-    } else {
-        tbody.innerHTML = flat.map(item => renderRow(item, showCategory, clickable)).join('');
+function customList() {
+    return customItems.map((item, i) => {
+        const key = `custom-${i}`;
+        itemIndex[key] = { name: item.name, quantity: item.quantity, key, custom: true };
+        return { key, name: item.name, quantity: item.quantity, category: 'My items', checked: !!item.checked };
+    });
+}
+
+function rowHtml(item) {
+    return `
+        <div class="item${item.checked ? ' checked' : ''}" data-key="${esc(item.key)}">
+            <span class="check">${CHECK_SVG}</span>
+            <span class="item-body">
+                <span class="item-name">${esc(item.name)}</span>
+                <span class="item-qty">${esc(item.quantity || '')}</span>
+            </span>
+            <button class="icon-btn info-btn" data-key="${esc(item.key)}" aria-label="Details">${INFO_SVG}</button>
+        </div>`;
+}
+
+function groupHtml(label, items) {
+    if (!items.length) return '';
+    return `<div class="section-label">${esc(label)}</div><div class="panel">${items.map(rowHtml).join('')}</div>`;
+}
+
+function render() {
+    itemIndex = {};
+    const custom = customList();
+    const main = sectionItems('main');
+    const secondary = sectionItems('secondary');
+
+    const toGet = [...custom, ...main].filter(i => !i.checked);
+    const inCart = [...custom, ...main].filter(i => i.checked);
+
+    let html = '';
+    if (!custom.length && !main.length && !secondary.length) {
+        html = `<div class="panel mt-3"><div class="empty-note">Nothing on the list yet.<br>Pick some recipes or add an item above.</div></div>`;
     }
 
-    updateSortArrows(section);
+    html += groupHtml('My items', toGet.filter(i => i.key.startsWith('custom-')));
+    const byCategory = {};
+    toGet.filter(i => !i.key.startsWith('custom-')).forEach(i => (byCategory[i.category] ||= []).push(i));
+    for (const cat of Object.keys(byCategory)) html += groupHtml(cat, byCategory[cat]);
+
+    if (main.length + custom.length && !toGet.length) {
+        html += `<div class="panel mt-3"><div class="empty-note">All done. Everything is in the cart.</div></div>`;
+    }
+
+    if (inCart.length) {
+        html += `<details class="collapsible" id="cartGroup"${sessionStorage.getItem('cartOpen') === '1' ? ' open' : ''}>
+            <summary class="section-label">${CHEV_SVG} In cart (${inCart.length})</summary>
+            <div class="panel">${inCart.map(rowHtml).join('')}</div></details>`;
+    }
+
+    if (secondary.length) {
+        const have = secondary.filter(i => !i.checked).length;
+        html += `<details class="collapsible" id="haveGroup"${sessionStorage.getItem('haveOpen') === '1' ? ' open' : ''}>
+            <summary class="section-label">${CHEV_SVG} Probably have (${have})</summary>
+            <div class="panel">${secondary.map(rowHtml).join('')}</div></details>`;
+    }
+
+    document.getElementById('list').innerHTML = html;
+    const total = toGet.length;
+    document.getElementById('remainingCount').textContent =
+        (main.length + custom.length) ? (total ? `${total} to get` : 'All done') : '';
+
+    for (const [id, keyName] of [['cartGroup', 'cartOpen'], ['haveGroup', 'haveOpen']]) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('toggle', () => sessionStorage.setItem(keyName, el.open ? '1' : '0'));
+    }
 }
 
-// Render all three sections
-function renderAll() {
-    itemIndex = {};
-    renderSection('main');
-    renderSection('secondary');
-    renderSection('custom');
+function toggleItem(key) {
+    if (key.startsWith('custom-')) {
+        const item = customItems[parseInt(key.slice(7), 10)];
+        item.checked = !item.checked;
+    } else if (checkedKeys.has(key)) {
+        checkedKeys.delete(key);
+    } else {
+        checkedKeys.add(key);
+    }
+    saveState();
+    render();
 }
 
-// Distinct vendors across the main/secondary ingredients, for the vendor
-// filter dropdown. Only shown at all when at least one item has a vendor set.
+function removeItem(key) {
+    if (key.startsWith('custom-')) {
+        customItems.splice(parseInt(key.slice(7), 10), 1);
+    } else {
+        dismissedKeys.add(key);
+        checkedKeys.delete(key);
+    }
+    saveState();
+    render();
+}
+
+function showDetail(key) {
+    const item = itemIndex[key];
+    if (!item) return;
+    document.getElementById('itemModalName').textContent = item.name;
+    document.getElementById('itemModalQty').textContent = item.quantity ? `Quantity: ${item.quantity}` : 'No quantity given';
+
+    const vendor = document.getElementById('itemModalVendor');
+    vendor.hidden = !item.vendor;
+    if (item.vendor) vendor.textContent = `Store: ${item.vendor}`;
+
+    const wrap = document.getElementById('itemModalSourcesWrap');
+    wrap.hidden = !!item.custom;
+    document.getElementById('itemModalSources').innerHTML = (item.sources || []).map(s =>
+        `<li><a href="/recipes_list?recipe=${encodeURIComponent(s.name)}">${esc(s.name)}</a></li>`).join('')
+        || '<li class="text-muted">Not from a recipe</li>';
+
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('itemModal'));
+    document.getElementById('itemModalRemove').onclick = () => { removeItem(key); modal.hide(); };
+    modal.show();
+}
+
+// "milk, 1 gal" -> name "milk", quantity "1 gal"
+function addCustomItem(e) {
+    e.preventDefault();
+    const input = document.getElementById('newItem');
+    const raw = input.value.trim();
+    if (!raw) return;
+    const [name, ...rest] = raw.split(',');
+    customItems.push({ name: name.trim(), quantity: rest.join(',').trim(), checked: false });
+    saveState();
+    render();
+    input.value = '';
+    input.focus();
+}
+
+function uncheckAll() {
+    checkedKeys.clear();
+    customItems.forEach(i => { i.checked = false; });
+    saveState();
+    render();
+}
+
+function restoreRemoved() {
+    dismissedKeys.clear();
+    saveState();
+    render();
+}
+
+function clearCustom() {
+    if (customItems.length && !confirm('Clear all items you added by hand?')) return;
+    customItems = [];
+    saveState();
+    render();
+}
+
 function initVendorFilter() {
     const vendors = new Set();
     for (const section of ['main', 'secondary']) {
-        const groups = SERVER_ITEMS[section] || {};
-        for (const category in groups) {
-            groups[category].forEach(item => {
-                if (item.vendor) vendors.add(item.vendor);
-            });
+        for (const items of Object.values(SERVER_ITEMS[section] || {})) {
+            items.forEach(i => i.vendor && vendors.add(i.vendor));
         }
     }
-
-    if (vendors.size === 0) return;
-
-    const sorted = Array.from(vendors).sort();
+    if (!vendors.size) return;
     const select = document.getElementById('vendorFilter');
-    sorted.forEach(vendor => {
-        const option = document.createElement('option');
-        option.value = vendor;
-        option.textContent = vendor;
-        select.appendChild(option);
-    });
-
-    document.getElementById('vendorFilterBar').style.display = '';
-    select.addEventListener('change', function() {
-        vendorFilter = this.value;
-        renderAll();
-    });
+    [...vendors].sort().forEach(v => select.add(new Option(v, v)));
+    document.getElementById('vendorBar').hidden = false;
+    select.addEventListener('change', () => { vendorFilter = select.value; render(); });
 }
 
-// Populate and show the ingredient detail modal for a main/secondary row
-function showIngredientDetail(rowId) {
-    const item = itemIndex[rowId];
-    if (!item) return;
+document.getElementById('list').addEventListener('click', (e) => {
+    const info = e.target.closest('.info-btn');
+    if (info) { showDetail(info.dataset.key); return; }
+    const row = e.target.closest('.item');
+    if (row) toggleItem(row.dataset.key);
+});
 
-    document.getElementById('ingredientDetailName').textContent = item.name;
-    document.getElementById('ingredientDetailQty').textContent = item.quantity || '(no quantity specified)';
-
-    const vendorWrap = document.getElementById('ingredientDetailVendorWrap');
-    if (item.vendor) {
-        document.getElementById('ingredientDetailVendor').textContent = item.vendor;
-        document.getElementById('ingredientDetailVendorFilterBtn').onclick = function() {
-            const select = document.getElementById('vendorFilter');
-            select.value = item.vendor;
-            vendorFilter = item.vendor;
-            renderAll();
-            bootstrap.Modal.getOrCreateInstance(document.getElementById('ingredientDetailModal')).hide();
-        };
-        vendorWrap.style.display = '';
-    } else {
-        vendorWrap.style.display = 'none';
-    }
-
-    const sourcesList = document.getElementById('ingredientDetailSources');
-    if (item.sources && item.sources.length > 0) {
-        sourcesList.innerHTML = item.sources.map(source =>
-            `<li><a href="/recipes_list?recipe=${encodeURIComponent(source.name)}" target="_blank" rel="noopener">${source.name}</a></li>`
-        ).join('');
-    } else {
-        sourcesList.innerHTML = '<li class="text-muted">No recipe on file (may have been added manually)</li>';
-    }
-
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('ingredientDetailModal')).show();
-}
-
-// Toggle an item's checked state
-function toggleItem(rowId) {
-    if (rowId.startsWith('custom-')) {
-        const index = parseInt(rowId.slice('custom-'.length), 10);
-        customItems[index].checked = !customItems[index].checked;
-    } else if (checkedKeys.has(rowId)) {
-        checkedKeys.delete(rowId);
-    } else {
-        checkedKeys.add(rowId);
-    }
-    saveState();
-    renderAll();
-}
-
-// Remove an item from view. Custom items are deleted outright; ingredients
-// pulled from recipes are just dismissed (they'll come back if you reset the
-// list or re-select the recipe).
-function removeItem(rowId) {
-    if (!confirm('Remove this item from the list?')) return;
-
-    if (rowId.startsWith('custom-')) {
-        const index = parseInt(rowId.slice('custom-'.length), 10);
-        customItems.splice(index, 1);
-    } else {
-        dismissedKeys.add(rowId);
-        checkedKeys.delete(rowId);
-    }
-    saveState();
-    renderAll();
-}
-
-// Add a manually-entered item to its own 'My Items' list, separate from the
-// recipe-derived Main List / Likely to Already Have sections
-function addCustomItem() {
-    const nameInput = document.getElementById('new-item-name');
-    const quantityInput = document.getElementById('new-item-quantity');
-
-    const name = nameInput.value.trim();
-    if (!name) {
-        alert('Please enter an item name');
-        return;
-    }
-
-    customItems.push({
-        name: name,
-        quantity: quantityInput.value.trim(),
-        checked: false
-    });
-
-    saveState();
-    renderAll();
-
-    // Clear inputs
-    nameInput.value = '';
-    quantityInput.value = '';
-    nameInput.focus();
-}
-
-// Remove a recipe from the selected list, then reload so the ingredient
-// tables regenerate from the new recipe selection.
-function bindRemoveRecipeButtons() {
-    document.querySelectorAll('.remove-recipe').forEach(button => {
-        button.addEventListener('click', function () {
-            const slug = this.dataset.id;
-            fetch(`/deselect/${slug}`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        window.location.reload();
-                    } else {
-                        alert('Remove failed.');
-                    }
-                })
-                .catch(() => alert('Remove failed.'));
-        });
-    });
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    bindRemoveRecipeButtons();
-
-    document.getElementById('new-item-name').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            addCustomItem();
-        }
-    });
-
-    document.getElementById('new-item-quantity').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            addCustomItem();
-        }
+document.querySelectorAll('.remove-recipe').forEach(btn => {
+    btn.addEventListener('click', () => {
+        fetch(`/deselect/${btn.dataset.slug}`, { method: 'POST' })
+            .then(r => r.json())
+            .then(d => d.success ? location.reload() : alert('Could not remove recipe.'))
+            .catch(() => alert('Could not remove recipe (offline?).'));
     });
 });
 
-// Re-render if the viewport crosses the mobile breakpoint, so rows switch
-// between the swipe-to-delete layout and the plain desktop layout live.
-MOBILE_QUERY.addEventListener('change', renderAll);
-
-// Initialize on page load
 loadState();
+saveState();
 initVendorFilter();
-renderAll();
+render();
 </script>
-
 {% endblock %}

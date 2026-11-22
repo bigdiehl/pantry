@@ -1,89 +1,50 @@
 {% extends "base.html" %}
 
-{% block title %}Recipe Browser{% endblock %}
+{% block title %}Recipes{% endblock %}
 
 {% block content %}
-
-<div class="recipes-page-container mt-4 mb-4">
-    <!-- Left Column: Recipe List -->
-    <div class="recipes-list-column">
-        <h2>Recipes</h2>
-
-        <!-- Tabs -->
-        <ul class="nav nav-tabs mt-3" id="recipeTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="saved-tab" data-bs-toggle="tab" data-bs-target="#saved" type="button" role="tab">
-                    Saved
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button" role="tab">
-                    Pending
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="archived-tab" data-bs-toggle="tab" data-bs-target="#archived" type="button" role="tab">
-                    Archive
-                </button>
-            </li>
-        </ul>
-
-        <!-- Tab Content -->
-        <div class="tab-content border border-top-0 p-2" id="recipeTabContent" style="max-height: 70vh; overflow-y: auto;">
-
-        <!-- Saved Recipes Tab -->
-        <div class="tab-pane fade show active" id="saved" role="tabpanel">
-            <!-- Search -->
-            <div class="mb-2">
-                <input type="text" id="recipeSearch" class="form-control form-control-sm" placeholder="Search recipes...">
+<div class="page page-wide">
+    <div class="recipes-layout">
+        <div>
+            <div class="page-header">
+                <h1>Recipes</h1>
+                <span class="meta" id="selectedCount"></span>
             </div>
-
-            <!-- Grouping Toggle -->
-            <div class="mb-2">
-                <div class="btn-group btn-group-sm w-100" role="group">
-                    <input type="radio" class="btn-check" name="groupBy" id="groupByCategory" value="category" checked>
-                    <label class="btn btn-outline-primary" for="groupByCategory">Category</label>
-
-                    <input type="radio" class="btn-check" name="groupBy" id="groupByMeal" value="meal">
-                    <label class="btn btn-outline-primary" for="groupByMeal">Meal</label>
+            <input type="search" id="recipeSearch" class="search-input" placeholder="Search recipes" autocomplete="off">
+            <div class="recipes-toolbar">
+                <div class="segmented" id="statusToggle">
+                    <button type="button" data-value="saved" class="active">Saved</button>
+                    <button type="button" data-value="archived">Archived</button>
+                </div>
+                <div class="segmented" id="groupToggle">
+                    <button type="button" data-value="category" class="active">Type</button>
+                    <button type="button" data-value="meal">Meal</button>
                 </div>
             </div>
-
-            <!-- Recipes grouped by Category (default) -->
-            <div id="categoryGroups"></div>
-
-            <!-- Recipes grouped by Meal (hidden by default) -->
-            <div id="mealGroups" style="display: none;"></div>
+            <div id="recipeGroups"></div>
         </div>
 
-        <!-- Recipe data for JS-driven grouping (see recipe_grouping.js / recipes_list.js) -->
-        <script id="recipesData" type="application/json">{{ recipes | tojson }}</script>
-        <script id="archivedRecipesData" type="application/json">{{ archived_recipes | tojson }}</script>
-
-        <!-- Pending Recipes Tab -->
-        <div class="tab-pane fade" id="pending" role="tabpanel">
-            <p class="text-muted"><em>Pending recipes will appear here once the import functionality is enabled.</em></p>
-        </div>
-
-        <!-- Archived Recipes Tab (read-only: archived recipes are out of shopping-list rotation) -->
-        <div class="tab-pane fade" id="archived" role="tabpanel">
-            <p class="text-muted"><em>Archived recipes are out of rotation and can't be added to the shopping list. Click one to view it.</em></p>
-            <div id="archivedCategoryGroups"></div>
-            <div id="archivedMealGroups" style="display: none;"></div>
-        </div>
-        </div>
-    </div>
-
-    <!-- Right Column: Recipe Content -->
-    <div class="recipes-content-column">
-        <div class="markdown-content" id="markdownContent">
-            <em>Select a recipe to view its contents.</em>
-        </div>
+        <aside class="recipe-detail" id="recipeDetail" aria-label="Recipe">
+            <div class="recipe-detail-bar">
+                <button class="icon-btn back-btn" id="detailBack" aria-label="Back">
+                    <svg viewBox="0 0 24 24" width="22" height="22"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div class="recipe-detail-title" id="detailTitle">Recipe</div>
+                <button class="pill-btn" id="detailToggle" hidden></button>
+            </div>
+            <div class="recipe-detail-body">
+                <div class="markdown-content" id="detailContent">
+                    <p class="recipe-detail-placeholder">Pick a recipe to read it here.</p>
+                </div>
+            </div>
+        </aside>
     </div>
 </div>
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-<script src="{{ url_for('static', filename='scripts/recipe_grouping.js') }}"></script>
-<script src="{{ url_for('static', filename='scripts/recipes_list.js') }}"></script>
+<script id="recipesData" type="application/json">{{ recipes | tojson }}</script>
+<script id="archivedRecipesData" type="application/json">{{ archived_recipes | tojson }}</script>
+{% endblock %}
 
+{% block scripts %}
+<script src="{{ asset('scripts/recipes_list.js') }}"></script>
 {% endblock %}

@@ -2,7 +2,7 @@
 // Served from /service-worker.js (see app.py) so its scope covers the whole app.
 // Bump CACHE_VERSION to force every client to drop its old cache.
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v5';
 const CACHE_NAME = `recipes-${CACHE_VERSION}`;
 
 // Network-first requests fall back to cache after this long. Keeps the app
@@ -12,27 +12,32 @@ const NETWORK_TIMEOUT_MS = 4000;
 const PRECACHE_URLS = [
   '/',
   '/recipes_list',
+  '/chat',
+  '/manage',
+  '/plan',
   '/static/manifest.json',
-  '/static/css/style.css',
-  '/static/scripts/recipe_grouping.js',
-  '/static/scripts/recipes_list.js',
-  '/static/scripts/shopping_list.js',
+  '/static/vendor/bootstrap.min.css',
+  '/static/vendor/bootstrap.bundle.min.js',
+  '/static/vendor/jquery.min.js',
+  '/static/vendor/fonts/fonts.css',
+  '/static/vendor/fonts/Lato-400.woff2',
+  '/static/vendor/fonts/Lato-700.woff2',
+  '/static/vendor/fonts/PlayfairDisplay-700.woff2',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js',
-  'https://code.jquery.com/jquery-3.7.0.min.js',
 ];
 
 // Features that only make sense online. Never cached.
 const NETWORK_ONLY_PREFIXES = [
   '/import/',
+  '/chat/',
+  '/push/',
   '/send_list',
   '/schedule/',
   '/download_shopping_list_pdf',
 ];
 
-// Recipe images and files. Rarely change, so serve from cache.
+// Recipe images and files: served from cache, refreshed in the background.
 const CACHE_FIRST_PREFIXES = ['/recipes/', '/pending/', '/archived/'];
 
 self.addEventListener('install', (event) => {
@@ -66,7 +71,9 @@ self.addEventListener('fetch', (event) => {
   } else if (!sameOrigin || path.startsWith('/static/')) {
     event.respondWith(staleWhileRevalidate(request));
   } else if (CACHE_FIRST_PREFIXES.some((p) => path.startsWith(p))) {
-    event.respondWith(cacheFirst(request));
+    // Recipe photos: instant from cache, refreshed in the background so a
+    // replaced photo shows up on the next view.
+    event.respondWith(staleWhileRevalidate(request));
   } else {
     event.respondWith(networkFirst(request));
   }
@@ -78,7 +85,7 @@ self.addEventListener('message', (event) => {
   if (data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   } else if (data.type === 'WARM_CACHE' && Array.isArray(data.urls)) {
-    event.waitUntil(cacheUrls(data.urls));
+    event.waitUntil(cacheUrls(data.urls).then(() => cacheRecipeImages(data.urls)));
   }
 });
 
@@ -100,6 +107,27 @@ async function cacheUrls(urls) {
       console.warn('[ServiceWorker] Precache failed:', u, err);
     }
   }));
+}
+
+// After warming /markdown/recipe/* responses, cache the photos they reference
+// (rendered as src="recipes/<slug>/<file>") so recipes show complete offline.
+async function cacheRecipeImages(urls) {
+  const cache = await caches.open(CACHE_NAME);
+  const images = new Set();
+  for (const u of urls) {
+    try {
+      const res = await cache.match(u);
+      if (!res) continue;
+      const { content } = await res.clone().json();
+      for (const m of (content || '').matchAll(/src="([^"]+)"/g)) {
+        const src = new URL(m[1], self.location.origin + '/');
+        if (src.origin === self.location.origin && src.pathname.startsWith('/recipes/')) images.add(src.pathname);
+      }
+    } catch (err) { /* not JSON or not cached; skip */ }
+  }
+  const missing = [];
+  for (const img of images) if (!(await cache.match(img))) missing.push(img);
+  await cacheUrls(missing);
 }
 
 async function cacheFirst(request) {
@@ -178,3 +206,34 @@ function offlineResponse(request) {
   }
   return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
 }
+
+// ---- Push notifications (weekly plan reminder) ----------------------------
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (err) { data = { body: event.data && event.data.text() }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'Pantry', {
+    body: data.body || '',
+    icon: '/static/icons/icon-192.png',
+    badge: '/static/icons/icon-96.png',
+    tag: data.tag || 'pantry',
+    data: { url: data.url || '/' },
+  }));
+});
+
+// Tapping the notification focuses an open app window (navigating it to the
+// target page) or opens a new one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || '/', self.location.origin).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const win of wins) {
+      if (new URL(win.url).origin === self.location.origin) {
+        await win.focus();
+        return win.navigate(target);
+      }
+    }
+    return self.clients.openWindow(target);
+  })());
+});

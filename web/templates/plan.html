@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}Weekly plan{% endblock %}
+
+{% block content %}
+<div class="page">
+    <div class="page-header">
+        <div>
+            <h1>Weekly plan</h1>
+            <div class="meta" id="nextRun">&nbsp;</div>
+        </div>
+        <span class="save-state" id="saveState"></span>
+    </div>
+
+    <div class="panel settings">
+        <label class="setting">
+            <span class="setting-text">
+                <span class="setting-title">Auto-pick recipes</span>
+                <span class="setting-desc">Choose recipes for you on a schedule and put them on the shopping list.</span>
+            </span>
+            <input class="form-check-input switch" type="checkbox" id="enabled">
+        </label>
+
+        <div class="setting">
+            <span class="setting-text">
+                <span class="setting-title">Recipes per plan</span>
+                <span class="setting-desc">Skips disabled recipes and ones made too recently.</span>
+            </span>
+            <span class="stepper">
+                <button type="button" class="icon-btn" data-step="-1" aria-label="Fewer">&minus;</button>
+                <span id="numRecipes">3</span>
+                <button type="button" class="icon-btn" data-step="1" aria-label="More">+</button>
+            </span>
+        </div>
+
+        <div class="setting">
+            <span class="setting-text"><span class="setting-title">How often</span></span>
+            <span class="segmented" id="frequency">
+                <button type="button" data-value="1">Weekly</button>
+                <button type="button" data-value="2">Every 2 weeks</button>
+            </span>
+        </div>
+
+        <div class="setting">
+            <span class="setting-text"><span class="setting-title">When</span></span>
+            <span class="d-flex gap-2">
+                <select id="dayOfWeek" class="form-select form-select-sm">
+                    <option value="6">Sunday</option>
+                    <option value="0">Monday</option>
+                    <option value="1">Tuesday</option>
+                    <option value="2">Wednesday</option>
+                    <option value="3">Thursday</option>
+                    <option value="4">Friday</option>
+                    <option value="5">Saturday</option>
+                </select>
+                <input type="time" id="sendTime" class="form-control form-control-sm" style="width: auto;">
+            </span>
+        </div>
+
+        <label class="setting">
+            <span class="setting-text">
+                <span class="setting-title">Start fresh each time</span>
+                <span class="setting-desc">Replace the previous picks. Off keeps what's already on the list and adds to it.</span>
+            </span>
+            <input class="form-check-input switch" type="checkbox" id="freshStart">
+        </label>
+    </div>
+
+    <div class="section-label">Reminders</div>
+    <div class="panel settings">
+        <label class="setting">
+            <span class="setting-text">
+                <span class="setting-title">Phone notification</span>
+                <span class="setting-desc" id="deviceCount">Sent to every device with notifications turned on.</span>
+            </span>
+            <input class="form-check-input switch" type="checkbox" id="notify">
+        </label>
+        <div class="setting setting-stack">
+            <span class="setting-desc" id="pushStatus">Checking this device...</span>
+            <span class="d-flex gap-2 flex-wrap">
+                <button type="button" class="btn btn-sm btn-primary" id="pushToggle" hidden>Turn on for this device</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="pushTest" hidden>Send test</button>
+            </span>
+        </div>
+
+        <label class="setting">
+            <span class="setting-text">
+                <span class="setting-title">Email the shopping list</span>
+                <span class="setting-desc">{{ 'PDF attached.' if email_enabled else 'Email is off on the server (set GMAIL_SENDER and GMAIL_APP_PASSWORD).' }}</span>
+            </span>
+            <input class="form-check-input switch" type="checkbox" id="sendEmail" {{ '' if email_enabled else 'disabled' }}>
+        </label>
+        <div class="setting setting-stack" id="recipientsRow">
+            <input type="text" id="recipients" class="form-control form-control-sm" placeholder="Email addresses, comma separated" {{ '' if email_enabled else 'disabled' }}>
+        </div>
+    </div>
+
+    <div class="section-label">Last plan</div>
+    <div class="panel p-3">
+        <div id="lastPlan" class="text-muted small">None yet.</div>
+        <button type="button" class="btn btn-outline-primary btn-sm mt-3" id="runNow">Pick recipes now</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const $ = (id) => document.getElementById(id);
+    let config = null;
+    let saveTimer = null;
+
+    // ---- Settings ----------------------------------------------------------
+
+    function fill(c) {
+        config = c;
+        $('enabled').checked = c.enabled;
+        $('numRecipes').textContent = c.num_recipes;
+        document.querySelectorAll('#frequency button').forEach(b => b.classList.toggle('active', +b.dataset.value === c.frequency_weeks));
+        $('dayOfWeek').value = String(c.day_of_week);
+        $('sendTime').value = c.send_time;
+        $('freshStart').checked = c.fresh_start;
+        $('notify').checked = c.notify;
+        $('sendEmail').checked = c.send_email;
+        $('recipients').value = c.recipients;
+        $('recipientsRow').hidden = !c.send_email;
+    }
+
+    function showNext(next) {
+        $('nextRun').textContent = config.enabled ? (next ? `Next: ${next}` : 'Scheduled') : 'Off';
+    }
+
+    function showLast(last) {
+        if (!last || !last.slugs) return;
+        const when = new Date(last.created).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        const names = (last.names || last.slugs.map(s => s.replace(/_/g, ' ')));
+        $('lastPlan').innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'mb-1';
+        head.textContent = when;
+        $('lastPlan').appendChild(head);
+        const ul = document.createElement('ul');
+        ul.className = 'mb-0 ps-3 text-body';
+        names.forEach(n => { const li = document.createElement('li'); li.textContent = n; ul.appendChild(li); });
+        $('lastPlan').appendChild(ul);
+    }
+
+    function collect() {
+        return {
+            ...config,
+            enabled: $('enabled').checked,
+            num_recipes: +$('numRecipes').textContent,
+            frequency_weeks: +(document.querySelector('#frequency button.active') || {}).dataset?.value || 1,
+            day_of_week: +$('dayOfWeek').value,
+            send_time: $('sendTime').value || '09:00',
+            fresh_start: $('freshStart').checked,
+            notify: $('notify').checked,
+            send_email: $('sendEmail').checked,
+            recipients: $('recipients').value,
+        };
+    }
+
+    function save() {
+        clearTimeout(saveTimer);
+        $('saveState').textContent = 'Saving...';
+        saveTimer = setTimeout(async () => {
+            try {
+                const res = await fetch('/schedule/config', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collect()),
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+                fill(data.config);
+                showNext(data.next_run);
+                $('saveState').textContent = 'Saved';
+            } catch (err) {
+                $('saveState').textContent = 'Not saved';
+                alert('Could not save: ' + err.message);
+            }
+        }, 400);
+    }
+
+    document.querySelectorAll('.settings input, .settings select').forEach(el => el.addEventListener('change', save));
+    $('recipients').addEventListener('input', save);
+    $('sendEmail').addEventListener('change', () => { $('recipientsRow').hidden = !$('sendEmail').checked; });
+    document.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => {
+        const n = Math.max(1, Math.min(14, +$('numRecipes').textContent + +b.dataset.step));
+        $('numRecipes').textContent = n;
+        save();
+    }));
+    $('frequency').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        document.querySelectorAll('#frequency button').forEach(x => x.classList.toggle('active', x === b));
+        save();
+    });
+
+    $('runNow').addEventListener('click', async () => {
+        const msg = $('freshStart').checked
+            ? 'Pick new recipes now? This replaces what is on the shopping list.'
+            : 'Pick recipes now and add them to the shopping list?';
+        if (!confirm(msg)) return;
+        $('runNow').disabled = true;
+        try {
+            const data = await (await fetch('/schedule/send_now', { method: 'POST' })).json();
+            if (!data.success) throw new Error(data.error);
+            if (data.skipped) { alert('Nothing picked: ' + data.skipped); return; }
+            showLast({ created: new Date().toISOString(), names: data.names, slugs: data.slugs });
+        } catch (err) {
+            alert('Failed: ' + err.message);
+        } finally {
+            $('runNow').disabled = false;
+        }
+    });
+
+    // ---- Push on this device -----------------------------------------------
+
+    function b64ToBytes(b64) {
+        const pad = '='.repeat((4 - b64.length % 4) % 4);
+        const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+        return Uint8Array.from(raw, c => c.charCodeAt(0));
+    }
+
+    function deviceLabel() {
+        const ua = navigator.userAgent;
+        const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'device';
+        const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+        return `${br} on ${os}`;
+    }
+
+    function setDevices(n) {
+        $('deviceCount').textContent = n
+            ? `Sent to ${n} device${n === 1 ? '' : 's'} with notifications on.`
+            : 'No devices have notifications on yet.';
+    }
+
+    async function currentSubscription() {
+        const reg = await navigator.serviceWorker.ready;
+        return reg.pushManager.getSubscription();
+    }
+
+    async function refreshPush() {
+        const btn = $('pushToggle');
+        if (!window.isSecureContext) {
+            $('pushStatus').textContent = 'Notifications need HTTPS. Open the app at its https:// Tailscale address.';
+            return;
+        }
+        if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+            $('pushStatus').textContent = /iPhone|iPad/.test(navigator.userAgent)
+                ? 'On iPhone, add the app to your Home Screen first, then open it from there.'
+                : "This browser doesn't support notifications.";
+            return;
+        }
+        if (Notification.permission === 'denied') {
+            $('pushStatus').textContent = 'Notifications are blocked for this site. Allow them in the browser settings.';
+            return;
+        }
+        const sub = await currentSubscription();
+        let on = false;
+        if (sub) {
+            const st = await (await fetch('/push/status', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }),
+            })).json();
+            on = st.subscribed;
+            setDevices(st.devices);
+        }
+        $('pushStatus').textContent = on ? 'This device gets notifications.' : 'This device does not get notifications.';
+        btn.textContent = on ? 'Turn off for this device' : 'Turn on for this device';
+        btn.classList.toggle('btn-primary', !on);
+        btn.classList.toggle('btn-outline-secondary', on);
+        btn.dataset.on = on ? '1' : '';
+        btn.hidden = false;
+        $('pushTest').hidden = !on;
+    }
+
+    $('pushToggle').addEventListener('click', async () => {
+        const btn = $('pushToggle');
+        btn.disabled = true;
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            let sub = await reg.pushManager.getSubscription();
+            if (btn.dataset.on) {
+                if (sub) {
+                    await fetch('/push/unsubscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+                    await sub.unsubscribe();
+                }
+            } else {
+                if (await Notification.requestPermission() !== 'granted') throw new Error('Permission was not granted.');
+                const { public_key } = await (await fetch('/push/key')).json();
+                if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(public_key) });
+                const res = await fetch('/push/subscribe', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: sub.toJSON(), label: deviceLabel() }),
+                });
+                if (!res.ok) throw new Error('Server rejected the subscription.');
+            }
+        } catch (err) {
+            alert('Could not change notifications: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            refreshPush();
+        }
+    });
+
+    $('pushTest').addEventListener('click', async () => {
+        const data = await (await fetch('/push/test', { method: 'POST' })).json();
+        if (!data.success) alert('No notification was delivered. Try turning notifications off and on again.');
+    });
+
+    // ---- Init ---------------------------------------------------------------
+
+    fetch('/schedule/config').then(r => r.json()).then(data => {
+        fill(data.config);
+        showNext(data.next_run);
+        showLast(data.last_plan);
+        setDevices(data.devices);
+    });
+    refreshPush().catch(() => { $('pushStatus').textContent = 'Could not check notification status.'; });
+})();
+</script>
+{% endblock %}

@@ -79,8 +79,8 @@
     </div>
 </div>
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-<script src="{{ url_for('static', filename='scripts/recipe_grouping.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/jquery.min.js') }}"></script>
+<script src="{{ asset('scripts/recipe_grouping.js') }}"></script>
 <script>
 $(document).ready(function() {
     const CATEGORY_ORDER = ['MEAT', 'DAIRY', 'VEGETABLE', 'FRUIT', 'BAKING', 'SPICE', 'OTHER'];

@@ -3,278 +3,291 @@
 {% block title %}Import Recipe{% endblock %}
 
 {% block content %}
-
-<div class="container mt-4">
-    <h2 class="mb-4">Import Recipe</h2>
+<div class="page">
+    <div class="page-header"><h1>Import a recipe</h1></div>
 
     {% if not import_enabled %}
-    <div class="alert alert-warning">
-        Recipe import is disabled. Set the <code>GEMINI_API_KEY</code> environment variable to enable it.
-    </div>
+    <div class="alert alert-warning">Import is off. Set <code>GEMINI_API_KEY</code> on the server to turn it on.</div>
     {% endif %}
 
-    <div class="row justify-content-center">
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Import Recipe with Gemini AI</h5>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label for="recipeUrl" class="form-label">Recipe URL</label>
-                        <input type="url" class="form-control" id="recipeUrl" placeholder="https://example.com/recipe" {{ 'disabled' if not import_enabled }}>
-                    </div>
+    <div class="segmented mb-3" id="modeToggle">
+        <button type="button" data-mode="photo" class="active">Photo</button>
+        <button type="button" data-mode="url">Link</button>
+        <button type="button" data-mode="text">Text</button>
+    </div>
 
-                    <div class="text-center mb-3">
-                        <strong>OR</strong>
-                    </div>
+    <div class="panel p-3">
+        <!-- Photo -->
+        <div data-pane="photo">
+            <p class="text-muted small mb-2">A cookbook page, recipe card, or handwritten note. Add several photos if it spans pages.</p>
+            <div class="photo-grid" id="photoGrid"></div>
+            <div class="d-flex gap-2 flex-wrap mb-3">
+                <label class="btn btn-outline-primary mb-0">
+                    Take photo
+                    <input type="file" accept="image/*" capture="environment" hidden class="photo-input" {{ 'disabled' if not import_enabled }}>
+                </label>
+                <label class="btn btn-outline-primary mb-0">
+                    Choose photos
+                    <input type="file" accept="image/*" multiple hidden class="photo-input" {{ 'disabled' if not import_enabled }}>
+                </label>
+            </div>
+            <label class="form-label small text-muted mb-1" for="photoNote">Note (optional)</label>
+            <input type="text" id="photoNote" class="form-control" placeholder="e.g. use the doubled quantities" {{ 'disabled' if not import_enabled }}>
+        </div>
 
-                    <div class="mb-3">
-                        <label for="recipeText" class="form-label">Paste Recipe Text</label>
-                        <textarea class="form-control" id="recipeText" rows="6" placeholder="Paste recipe content here..." {{ 'disabled' if not import_enabled }}></textarea>
-                    </div>
+        <!-- URL -->
+        <div data-pane="url" hidden>
+            <label class="form-label small text-muted mb-1" for="recipeUrl">Recipe link</label>
+            <input type="url" class="form-control" id="recipeUrl" placeholder="https://example.com/recipe" inputmode="url" {{ 'disabled' if not import_enabled }}>
+        </div>
 
-                    <div class="mb-3">
-                        <button id="extractBtn" class="btn btn-primary w-100" {{ 'disabled' if not import_enabled }}>Extract Recipe</button>
-                    </div>
+        <!-- Text -->
+        <div data-pane="text" hidden>
+            <label class="form-label small text-muted mb-1" for="recipeText">Recipe text</label>
+            <textarea class="form-control" id="recipeText" rows="8" placeholder="Paste the recipe here" {{ 'disabled' if not import_enabled }}></textarea>
+        </div>
 
-                    <!-- Extraction progress: attempt N/max, a progress bar, and a running
-                         log of what each attempt did (calling Gemini, validation errors fed
-                         back for a retry, success, or giving up after the last attempt). -->
-                    <div id="importProgress" class="mb-3" style="display: none;">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <strong id="importProgressLabel">Starting…</strong>
-                            <span id="importProgressCount" class="text-muted small"></span>
-                        </div>
-                        <div class="progress mb-2" style="height: 8px;">
-                            <div id="importProgressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                        </div>
-                        <ul id="importProgressLog" class="list-unstyled small text-muted mb-0" style="max-height: 160px; overflow-y: auto;"></ul>
-                    </div>
+        <button id="extractBtn" class="btn btn-primary w-100 mt-3" {{ 'disabled' if not import_enabled }}>Extract recipe</button>
 
-                    <div id="importStatus" class="alert" style="display: none;"></div>
+        <!-- Progress -->
+        <div id="importProgress" class="mt-3" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <strong id="importProgressLabel" class="small">Starting...</strong>
+                <span id="importProgressCount" class="text-muted small"></span>
+            </div>
+            <div class="progress mb-2" style="height: 6px;">
+                <div id="importProgressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+            </div>
+            <ul id="importProgressLog" class="list-unstyled small text-muted mb-0" style="max-height: 140px; overflow-y: auto;"></ul>
+        </div>
 
-                    <div id="importPreview" style="display: none;">
-                        <hr>
-                        <h5>Extracted Recipe</h5>
+        <div id="importStatus" class="alert mt-3 mb-0" style="display: none;"></div>
+    </div>
 
-                        <!-- Shown when the importer gave up after the max retries but still
-                             produced a usable (if imperfect) recipe - lists what's still wrong
-                             so it can be fixed by hand after saving. -->
-                        <div id="importValidationWarnings" class="alert alert-warning" style="display: none;">
-                            <strong>Saved best-effort after retries — please double-check:</strong>
-                            <ul id="importValidationWarningsList" class="mb-0"></ul>
-                        </div>
-
-                        <div class="mb-3">
-                            <strong>Recipe Name:</strong> <span id="extractedName"></span>
-                        </div>
-                        <div class="mb-3">
-                            <strong>Slug:</strong> <span id="extractedSlug"></span>
-                        </div>
-                        <div class="mb-3">
-                            <strong>Source:</strong> <span id="extractedSource"></span>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Preview</label>
-                            <div id="extractedPreview" class="border p-3 markdown-content" style="max-height: 400px; overflow-y: auto; background: #f8f9fa;"></div>
-                        </div>
-                        <button id="confirmImportBtn" class="btn btn-success w-100">Save to Pending Recipes</button>
-                    </div>
-                </div>
+    <!-- Result -->
+    <div id="importPreview" style="display: none;">
+        <div class="section-label">Extracted recipe</div>
+        <div class="panel">
+            <div class="p-3 border-bottom small text-muted">
+                From <span id="extractedSource"></span>. Saved as pending so you can review it before it joins the rotation.
+            </div>
+            <div id="importValidationWarnings" class="alert alert-warning m-3 small" style="display: none;">
+                <strong>Saved best-effort after retries. Check these:</strong>
+                <ul id="importValidationWarningsList" class="mb-0"></ul>
+            </div>
+            <div id="extractedPreview" class="markdown-content p-3"></div>
+            <div class="p-3 border-top d-flex gap-2">
+                <button id="confirmImportBtn" class="btn btn-primary flex-fill">Save to pending</button>
+                <button id="discardImportBtn" class="btn btn-outline-secondary">Discard</button>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+{% block scripts %}
 <script>
-$(document).ready(function() {
-
-    // How often to poll /import/status/<job_id> while an extraction job is running.
+(function () {
     const POLL_INTERVAL_MS = 800;
-
-    // Number of events from the current job already appended to the log, so
-    // each poll only renders what's new.
+    const MAX_PHOTOS = 6;
+    const MAX_EDGE = 2000;          // px; enough to read small print and handwriting
+    let mode = 'photo';
+    let photos = [];                // [{blob, url}]
     let renderedEventCount = 0;
+    let busy = false;
 
-    function resetProgressUI() {
-        renderedEventCount = 0;
-        $('#importProgressLog').empty();
-        $('#importProgressBar').css('width', '0%');
-        $('#importProgressCount').text('');
-        $('#importProgressLabel').text('Starting…');
-        $('#importProgress').show();
+    const $ = (id) => document.getElementById(id);
+    const show = (el, on) => { el.style.display = on ? '' : 'none'; };
+
+    function status(msg, ok) {
+        const el = $('importStatus');
+        el.className = `alert mt-3 mb-0 ${ok ? 'alert-success' : 'alert-danger'}`;
+        el.textContent = msg;
+        show(el, !!msg);
     }
 
-    // Turn one progress event from extract_recipe()'s on_progress callback
-    // into a human-readable line for the log / status label.
-    function describeEvent(event) {
-        const attemptTag = `Attempt ${event.attempt}/${event.max_attempts}`;
-        const issueCount = n => `${n} issue${n === 1 ? '' : 's'}`;
+    // ---- Mode toggle ----
+    $('modeToggle').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        mode = b.dataset.mode;
+        document.querySelectorAll('#modeToggle button').forEach(x => x.classList.toggle('active', x === b));
+        document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== mode; });
+    });
 
-        switch (event.type) {
-            case 'attempt_start':
-                return `${attemptTag}: calling Gemini…`;
-            case 'validation_failed':
-                return `${attemptTag}: validation failed (${issueCount(event.errors.length)}) — retrying with feedback…`;
-            case 'retry':
-                return `${attemptTag}: ${event.reason} — retrying…`;
-            case 'success':
-                return `${attemptTag}: extraction succeeded.`;
-            case 'giving_up':
-                return `${attemptTag}: still ${issueCount(event.errors.length)} after max attempts — saving best effort.`;
-            case 'failed':
-                return `${attemptTag}: failed — ${event.reason}`;
-            default:
-                return attemptTag;
+    // ---- Photos ----
+    // Downscale on the phone before upload: a 12 MP photo becomes a few hundred KB.
+    async function shrink(file) {
+        try {
+            const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+            const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(bitmap.width * scale);
+            canvas.height = Math.round(bitmap.height * scale);
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            return await new Promise(res => canvas.toBlob(b => res(b || file), 'image/jpeg', 0.85));
+        } catch (err) {
+            return file;   // format the browser can't decode (e.g. HEIC on some browsers): send as-is
         }
     }
 
-    function renderNewEvents(events, maxAttempts) {
+    function renderPhotos() {
+        $('photoGrid').innerHTML = photos.map((p, i) => `
+            <div class="photo-thumb">
+                <img src="${p.url}" alt="Photo ${i + 1}">
+                <button type="button" data-i="${i}" aria-label="Remove photo">&times;</button>
+            </div>`).join('');
+    }
+
+    document.querySelectorAll('.photo-input').forEach(input => input.addEventListener('change', async () => {
+        for (const file of input.files) {
+            if (photos.length >= MAX_PHOTOS) { alert(`Up to ${MAX_PHOTOS} photos.`); break; }
+            const blob = await shrink(file);
+            photos.push({ blob, url: URL.createObjectURL(blob) });
+        }
+        input.value = '';
+        renderPhotos();
+    }));
+
+    $('photoGrid').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        URL.revokeObjectURL(photos[b.dataset.i].url);
+        photos.splice(b.dataset.i, 1);
+        renderPhotos();
+    });
+
+    // ---- Progress ----
+    function describeEvent(ev) {
+        const tag = `Attempt ${ev.attempt}/${ev.max_attempts}`;
+        const issues = n => `${n} issue${n === 1 ? '' : 's'}`;
+        switch (ev.type) {
+            case 'attempt_start': return `${tag}: reading the recipe...`;
+            case 'validation_failed': return `${tag}: ${issues(ev.errors.length)} found, retrying...`;
+            case 'retry': return `${tag}: ${ev.reason}. Retrying...`;
+            case 'success': return `${tag}: done.`;
+            case 'giving_up': return `${tag}: still ${issues(ev.errors.length)}. Keeping best effort.`;
+            case 'failed': return `${tag}: failed. ${ev.reason}`;
+            default: return tag;
+        }
+    }
+
+    function renderEvents(events, max) {
         for (; renderedEventCount < events.length; renderedEventCount++) {
-            const event = events[renderedEventCount];
-            const line = describeEvent(event);
-            $('#importProgressLog').append($('<li>').text(line));
-            $('#importProgressLabel').text(line);
-            if (typeof event.attempt === 'number') {
-                $('#importProgressCount').text(`Attempt ${event.attempt} of ${maxAttempts}`);
-                $('#importProgressBar').css('width', `${Math.min(100, (event.attempt / maxAttempts) * 100)}%`);
+            const ev = events[renderedEventCount];
+            const line = describeEvent(ev);
+            const li = document.createElement('li');
+            li.textContent = line;
+            $('importProgressLog').appendChild(li);
+            $('importProgressLabel').textContent = line;
+            if (typeof ev.attempt === 'number') {
+                $('importProgressCount').textContent = `${ev.attempt} of ${max}`;
+                $('importProgressBar').style.width = `${Math.min(100, ev.attempt / max * 100)}%`;
             }
         }
-        const log = document.getElementById('importProgressLog');
-        log.scrollTop = log.scrollHeight;
     }
 
-    // Poll one running import job until it finishes (success, best-effort
-    // give-up, or error), rendering progress events as they arrive.
-    function pollImportJob(jobId, maxAttempts, btn) {
-        $.get(`/import/status/${jobId}`, function(data) {
-            renderNewEvents(data.events || [], data.max_attempts || maxAttempts);
-
-            if (data.status === 'running') {
-                setTimeout(() => pollImportJob(jobId, maxAttempts, btn), POLL_INTERVAL_MS);
-                return;
-            }
-
-            btn.prop('disabled', false).text('Extract Recipe');
-
-            if (data.status === 'error') {
-                $('#importStatus')
-                    .removeClass('alert-success')
-                    .addClass('alert-danger')
-                    .text('Error: ' + (data.error || 'Failed to extract recipe'))
-                    .show();
-                return;
-            }
-
-            // status === 'done'
-            const result = data.result;
-            $('#extractedName').text(result.recipe.name);
-            $('#extractedSlug').text(result.slug);
-            $('#extractedSource').text(result.source);
-
-            // Render markdown preview
-            const html = result.markdown_preview.split('\n').map(line => {
-                if (line.startsWith('# ')) return '<h1>' + line.slice(2) + '</h1>';
-                if (line.startsWith('## ')) return '<h2>' + line.slice(3) + '</h2>';
-                if (line.startsWith('- ')) return '<li>' + line.slice(2) + '</li>';
-                if (line.match(/^\d+\./)) return '<li>' + line.slice(line.indexOf('.') + 1) + '</li>';
-                return '<p>' + line + '</p>';
-            }).join('');
-            $('#extractedPreview').html(html);
-
-            // If the importer only got here by giving up after max retries,
-            // it still has unresolved validation errors - flag them.
-            if (result.validation_errors && result.validation_errors.length) {
-                const list = $('#importValidationWarningsList').empty();
-                result.validation_errors.forEach(err => {
-                    list.append($('<li>').text(`${err.field}: ${err.message}`));
-                });
-                $('#importValidationWarnings').show();
-            } else {
-                $('#importValidationWarnings').hide();
-            }
-
-            $('#importPreview').show();
-        }).fail(function(xhr) {
-            btn.prop('disabled', false).text('Extract Recipe');
-            $('#importStatus')
-                .removeClass('alert-success')
-                .addClass('alert-danger')
-                .text('Error: ' + (xhr.responseJSON?.error || 'Lost track of the import job'))
-                .show();
-        });
+    function setBusy(on) {
+        busy = on;
+        $('extractBtn').disabled = on;
+        $('extractBtn').textContent = on ? 'Extracting...' : 'Extract recipe';
     }
 
-    $('#extractBtn').click(function() {
-        const url = $('#recipeUrl').val().trim();
-        const text = $('#recipeText').val().trim();
+    async function renderPreview(markdown) {
+        try {
+            const res = await fetch('/editor/preview', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ markdown }),
+            });
+            $('extractedPreview').innerHTML = (await res.json()).html;
+        } catch (err) {
+            $('extractedPreview').textContent = markdown;
+        }
+    }
 
-        if (!url && !text) {
-            alert('Please provide either a URL or recipe text');
+    async function poll(jobId, max) {
+        let data;
+        try {
+            data = await (await fetch(`/import/status/${jobId}`)).json();
+        } catch (err) {
+            setBusy(false);
+            status('Lost track of the import job.');
             return;
         }
+        renderEvents(data.events || [], data.max_attempts || max);
+        if (data.status === 'running') { setTimeout(() => poll(jobId, max), POLL_INTERVAL_MS); return; }
+        setBusy(false);
+        if (data.status === 'error') { status('Error: ' + (data.error || 'Failed to extract recipe')); return; }
 
-        const btn = $(this);
-        btn.prop('disabled', true).text('Extracting...');
-        $('#importStatus').hide();
-        $('#importValidationWarnings').hide();
-        $('#importPreview').hide();
-        resetProgressUI();
+        const r = data.result;
+        $('extractedSource').textContent = r.source;
+        await renderPreview(r.markdown_preview);
+        const warn = r.validation_errors || [];
+        $('importValidationWarningsList').innerHTML = '';
+        warn.forEach(e => { const li = document.createElement('li'); li.textContent = `${e.field}: ${e.message}`; $('importValidationWarningsList').appendChild(li); });
+        show($('importValidationWarnings'), warn.length > 0);
+        show($('importPreview'), true);
+        $('importPreview').scrollIntoView({ behavior: 'smooth' });
+    }
 
-        $.ajax({
-            url: '/import/extract',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ url, text }),
-            success: function(response) {
-                pollImportJob(response.job_id, response.max_attempts, btn);
-            },
-            error: function(xhr) {
-                btn.prop('disabled', false).text('Extract Recipe');
-                $('#importProgress').hide();
-                $('#importStatus')
-                    .removeClass('alert-success')
-                    .addClass('alert-danger')
-                    .text('Error: ' + (xhr.responseJSON?.error || 'Failed to extract recipe'))
-                    .show();
-            }
-        });
+    $('extractBtn').addEventListener('click', async () => {
+        if (busy) return;
+        let body, headers = {};
+        if (mode === 'photo') {
+            if (!photos.length) { alert('Add a photo first.'); return; }
+            body = new FormData();
+            photos.forEach((p, i) => body.append('images', p.blob, `photo-${i + 1}.jpg`));
+            body.append('text', $('photoNote').value.trim());
+        } else {
+            const url = mode === 'url' ? $('recipeUrl').value.trim() : '';
+            const text = mode === 'text' ? $('recipeText').value.trim() : '';
+            if (!url && !text) { alert(mode === 'url' ? 'Paste a link first.' : 'Paste the recipe text first.'); return; }
+            body = JSON.stringify({ url, text });
+            headers['Content-Type'] = 'application/json';
+        }
+
+        setBusy(true);
+        status('');
+        show($('importPreview'), false);
+        renderedEventCount = 0;
+        $('importProgressLog').innerHTML = '';
+        $('importProgressBar').style.width = '0%';
+        $('importProgressCount').textContent = '';
+        $('importProgressLabel').textContent = mode === 'photo' ? 'Uploading photos...' : 'Starting...';
+        show($('importProgress'), true);
+
+        try {
+            const res = await fetch('/import/extract', { method: 'POST', headers, body });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+            poll(data.job_id, data.max_attempts);
+        } catch (err) {
+            setBusy(false);
+            show($('importProgress'), false);
+            status('Error: ' + err.message);
+        }
     });
 
-    $('#confirmImportBtn').click(function() {
-        const btn = $(this);
-        btn.prop('disabled', true).text('Saving...');
-
-        $.post('/import/confirm', function(response) {
-            $('#importStatus')
-                .removeClass('alert-danger')
-                .addClass('alert-success')
-                .text('Recipe saved to pending! Taking you to Edit Recipes...')
-                .show();
-
-            $('#recipeUrl').val('');
-            $('#recipeText').val('');
-            $('#importPreview').hide();
-            $('#importProgress').hide();
-
-            // Go straight to the Edit Recipes page, Pending tab, for this recipe
-            setTimeout(function() {
-                window.location.href = '/editor?tab=pending';
-            }, 1000);
-        }).fail(function(xhr) {
-            $('#importStatus')
-                .removeClass('alert-success')
-                .addClass('alert-danger')
-                .text('Error: ' + (xhr.responseJSON?.error || 'Failed to save recipe'))
-                .show();
-        }).always(function() {
-            btn.prop('disabled', false).text('Save to Pending Recipes');
-        });
+    $('confirmImportBtn').addEventListener('click', async () => {
+        const btn = $('confirmImportBtn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+        try {
+            const res = await fetch('/import/confirm', { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Failed to save recipe');
+            location.href = `/editor?edit=${encodeURIComponent(data.slug)}&status=pending`;
+        } catch (err) {
+            status('Error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Save to pending';
+        }
     });
 
-});
+    $('discardImportBtn').addEventListener('click', () => {
+        show($('importPreview'), false);
+        show($('importProgress'), false);
+    });
+})();
 </script>
-
 {% endblock %}

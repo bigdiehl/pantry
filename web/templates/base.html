@@ -1,119 +1,78 @@
+{%- set section = {
+    'home': 'list', 'recipes_list': 'recipes', 'chat': 'chat',
+    'manage': 'manage', 'plan': 'manage', 'editor': 'manage', 'ingredients': 'manage', 'import': 'manage'
+}.get(active_page, '') -%}
+{%- set nav_items = [
+    ('list', 'index', 'List', 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01'),
+    ('recipes', 'recipes_list', 'Recipes', 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4zM5 17a3 3 0 0 1 3-3h11'),
+    ('chat', 'chat_page', 'Chat', 'M4 5h16v11H9l-5 4V5z'),
+    ('manage', 'manage_page', 'Manage', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-1-3-2 .2-1.5-1.5L16.7 4l-3-1-1 2h-1.4l-1-2-3 1 .2 2.7L6 8.2 4 8l-1 3 2 1v1.4l-2 1 1 3 2-.2 1.5 1.5L7.3 20l3 1 1-2h1.4l1 2 3-1-.2-2.7 1.5-1.5 2 .2 1-3-2-1z'),
+] -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    
-    <title>{% block title %}My Flask Site{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Family recipes, shopping list, and meal planning.">
+    <title>{% block title %}Pantry{% endblock %} - The Diehl Menu</title>
 
-    <!-- PWA Manifest -->
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-
-    <!-- Theme color for mobile browsers -->
     <meta name="theme-color" content="#2c3e50">
-
-    <!-- iOS-specific PWA meta tags -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Recipes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Diehl Menu">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
 
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
-
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;600;700&display=swap" rel="stylesheet">
-
-    <!-- Site CSS loads last so its overrides reliably beat Bootstrap's
-         same-specificity rules regardless of source order. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Served locally so the app works offline (see service-worker.js). -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/style.css') }}">
+    {% block head %}{% endblock %}
 </head>
-<body>
-    <!-- Offline indicator banner -->
-    <div id="offline-banner" style="display: none; background-color: #ff9800; color: white; padding: 8px; text-align: center; font-size: 14px;">
-        You are offline. Some features may be unavailable.
-    </div>
+<body class="section-{{ section or 'none' }}">
+    <div id="offline-banner" class="offline-banner" hidden>Offline. Showing saved copies.</div>
 
-    <div class="container-fluid">
-        <header class="bg-light navbar-light">
-            <!-- Title row: its own line, always - never affected by the nav below expanding/collapsing -->
-            <div class="container-fluid nav-container d-flex justify-content-between align-items-center pt-2">
-                <button class="navbar-toggler d-xl-none" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <span class="site-title mb-0 ms-auto">The Diehl Menu</span>
-            </div>
-
-            <!-- Nav row: a separate line below the title. Flat page links on desktop
-                 (enough room); collapses into one flat list under the toggler otherwise. -->
-            <nav class="navbar navbar-expand-xl navbar-light py-2">
-                <div class="container-fluid nav-container">
-                    <div class="collapse navbar-collapse" id="mainNav">
-                        <ul class="navbar-nav nav-buttons-container">
-                            <li class="nav-item">
-                                <a class="btn btn-sm nav-btn {% if active_page == 'home' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('index') }}">Shopping List</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="btn btn-sm nav-btn {% if active_page == 'recipes_list' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('recipes_list') }}">Recipes</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="btn btn-sm nav-btn {% if active_page == 'editor' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('editor_page') }}">Edit Recipes</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="btn btn-sm nav-btn {% if active_page == 'ingredients' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('ingredients_page') }}">Edit Ingredients</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="btn btn-sm nav-btn {% if active_page == 'import' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_for('import_page') }}">Import Recipe</a>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
+    <header class="app-header">
+        <div class="app-header-inner">
+            <a class="brand" href="{{ url_for('index') }}">The Diehl Menu</a>
+            <nav class="top-nav" aria-label="Main">
+                {% for key, endpoint, label, icon in nav_items %}
+                <a href="{{ url_for(endpoint) }}" class="top-nav-link{% if section == key %} active{% endif %}">{{ label }}</a>
+                {% endfor %}
             </nav>
-        </header>
-    
-        <main>
-            {% block content %}{% endblock %}
-        </main>
+        </div>
+    </header>
 
-    </div>
+    <main class="app-main">
+        {% block content %}{% endblock %}
+    </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+    <nav class="tab-bar" aria-label="Main">
+        {% for key, endpoint, label, icon in nav_items %}
+        <a href="{{ url_for(endpoint) }}" class="tab-bar-link{% if section == key %} active{% endif %}">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="{{ icon }}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>{{ label }}</span>
+        </a>
+        {% endfor %}
+    </nav>
 
-    <!-- PWA Service Worker Registration -->
+    <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
     <script>
-        // Register service worker for offline support
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/service-worker.js')
-                    .then((registration) => {
-                        console.log('ServiceWorker registered:', registration.scope);
-                    })
-                    .catch((error) => {
-                        console.error('ServiceWorker registration failed:', error);
-                    });
+                    .catch((err) => console.error('ServiceWorker registration failed:', err));
             });
         }
-
-        // Offline/online status indicator
-        const offlineBanner = document.getElementById('offline-banner');
-
-        function updateOnlineStatus() {
-            if (navigator.onLine) {
-                offlineBanner.style.display = 'none';
-            } else {
-                offlineBanner.style.display = 'block';
-            }
-        }
-
-        // Check initial status
-        updateOnlineStatus();
-
-        // Listen for status changes
-        window.addEventListener('online', updateOnlineStatus);
-        window.addEventListener('offline', updateOnlineStatus);
+        (function () {
+            const banner = document.getElementById('offline-banner');
+            const update = () => { banner.hidden = navigator.onLine; };
+            update();
+            window.addEventListener('online', update);
+            window.addEventListener('offline', update);
+        })();
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

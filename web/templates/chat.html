@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Chat{% endblock %}
+
+{% block content %}
+<div class="chat-page">
+    <div class="page-header mt-3 mb-0">
+        <h1>What's for dinner?</h1>
+        <button class="btn btn-sm btn-outline-secondary" id="newChat" hidden>New chat</button>
+    </div>
+
+    <div class="chat-log" id="chatLog" aria-live="polite">
+        {% if not chat_enabled %}
+        <div class="msg msg-bot msg-error">Chat is off. Set <code>GEMINI_API_KEY</code> on the server to turn it on.</div>
+        {% else %}
+        <div id="intro">
+            <p class="text-muted mb-2">Tell me what's in the fridge, what you're craving, or how much time you have. I know your saved recipes and can suggest new ones.</p>
+            <div class="chat-starters">
+                <button class="pill-btn starter">What haven't we had in a while?</button>
+                <button class="pill-btn starter">I have chicken, rice, and peppers</button>
+                <button class="pill-btn starter">Something quick for tonight</button>
+                <button class="pill-btn starter">Suggest a new vegetarian dinner</button>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <form class="composer" id="composer">
+        <div class="composer-box">
+            <textarea id="chatInput" rows="1" placeholder="Ask about recipes..." enterkeyhint="send" {{ 'disabled' if not chat_enabled }}></textarea>
+            <button type="button" class="icon-btn mic-btn" id="micBtn" aria-label="Speak" hidden>
+                <svg viewBox="0 0 24 24" width="22" height="22"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <button type="submit" class="icon-btn send-btn" id="sendBtn" aria-label="Send" disabled>
+                <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const CHAT_ENABLED = {{ chat_enabled | tojson }};
+    const STORE = 'recipeChat';   // sessionStorage: conversation lasts until the tab closes or "New chat"
+    const log = document.getElementById('chatLog');
+    const input = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const micBtn = document.getElementById('micBtn');
+    const newBtn = document.getElementById('newChat');
+    const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    // [{role: 'user'|'assistant', text, html?, recipes?, ideas?}]
+    let messages = [];
+    let busy = false;
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+    function save() { sessionStorage.setItem(STORE, JSON.stringify(messages)); }
+
+    function cardsHtml(m) {
+        const recipes = (m.recipes || []).map(r => `
+            <div class="suggest-card">
+                <div class="suggest-card-text">
+                    <div class="suggest-card-tag">Your recipe</div>
+                    <a class="suggest-card-name" href="/recipes_list?recipe=${encodeURIComponent(r.name)}">${esc(r.name)}</a>
+                    <div class="suggest-card-note">${esc(r.reason)}</div>
+                </div>
+                <button class="pill-btn add-btn${r.selected ? ' on' : ''}" data-slug="${esc(r.slug)}">${r.selected ? CHECK + ' On list' : '+ Add'}</button>
+            </div>`).join('');
+        const ideas = (m.ideas || []).map(i => `
+            <div class="suggest-card">
+                <div class="suggest-card-text">
+                    <div class="suggest-card-tag">New idea</div>
+                    <div class="suggest-card-name">${esc(i.name)}</div>
+                    <div class="suggest-card-note">${esc(i.summary)}</div>
+                </div>
+                <a class="pill-btn" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent(i.name + ' recipe')}">Find</a>
+            </div>`).join('');
+        return recipes || ideas ? `<div class="msg-cards">${recipes}${ideas}</div>` : '';
+    }
+
+    function render() {
+        if (!CHAT_ENABLED) return;
+        const intro = document.getElementById('intro');
+        if (intro) intro.hidden = messages.length > 0;
+        newBtn.hidden = messages.length === 0;
+        log.querySelectorAll('.msg').forEach(el => el.remove());
+        for (const m of messages) {
+            const div = document.createElement('div');
+            if (m.role === 'user') {
+                div.className = 'msg msg-user';
+                div.textContent = m.text;
+            } else {
+                div.className = 'msg msg-bot' + (m.error ? ' msg-error' : '');
+                div.innerHTML = (m.html || esc(m.text)) + cardsHtml(m);
+            }
+            log.appendChild(div);
+        }
+        if (busy) {
+            const div = document.createElement('div');
+            div.className = 'msg msg-bot';
+            div.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+            log.appendChild(div);
+        }
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    function autosize() {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+        sendBtn.disabled = busy || !input.value.trim();
+    }
+
+    async function send(text) {
+        text = text.trim();
+        if (!text || busy) return;
+        stopListening();
+        messages.push({ role: 'user', text });
+        input.value = '';
+        busy = true;
+        autosize();
+        save();
+        render();
+
+        try {
+            const res = await fetch('/chat/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Errors are UI-only; don't send them back to the model.
+                body: JSON.stringify({ messages: messages.filter(m => !m.error).map(m => ({ role: m.role, text: m.text })) }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+            messages.push({ role: 'assistant', text: data.reply, html: data.reply_html, recipes: data.recipes, ideas: data.ideas });
+        } catch (err) {
+            messages.push({ role: 'assistant', text: navigator.onLine ? err.message : 'You are offline. Chat needs a connection.', error: true });
+        } finally {
+            busy = false;
+            save();
+            render();
+            autosize();
+        }
+    }
+
+    // Add/remove a suggested recipe from the shopping list
+    log.addEventListener('click', async (e) => {
+        const starter = e.target.closest('.starter');
+        if (starter) { send(starter.textContent); return; }
+        const btn = e.target.closest('.add-btn');
+        if (!btn) return;
+        try {
+            const res = await fetch(`/recipes_list/toggle/${encodeURIComponent(btn.dataset.slug)}`, { method: 'POST' });
+            const d = await res.json();
+            if (!d.success) throw new Error();
+            messages.forEach(m => (m.recipes || []).forEach(r => { if (r.slug === btn.dataset.slug) r.selected = d.selected; }));
+            save();
+            render();
+        } catch (err) {
+            alert('Could not update the shopping list.');
+        }
+    });
+
+    document.getElementById('composer').addEventListener('submit', (e) => { e.preventDefault(); send(input.value); });
+    input.addEventListener('input', autosize);
+    input.addEventListener('keydown', (e) => {
+        // Enter sends on desktop; on phones the keyboard's return key adds a newline.
+        if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(min-width: 768px)').matches) {
+            e.preventDefault();
+            send(input.value);
+        }
+    });
+    newBtn.addEventListener('click', () => { messages = []; save(); render(); input.focus(); });
+
+    // ---- Voice input (Web Speech API; Chrome/Android/Safari) -------------
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let baseText = '';
+
+    function stopListening() {
+        if (recognition) recognition.stop();
+    }
+
+    if (SR && CHAT_ENABLED) {
+        micBtn.hidden = false;
+        micBtn.addEventListener('click', () => {
+            if (recognition) { recognition.stop(); return; }
+            recognition = new SR();
+            recognition.lang = navigator.language || 'en-US';
+            recognition.interimResults = true;
+            recognition.continuous = false;
+            baseText = input.value ? input.value.replace(/\s*$/, ' ') : '';
+            recognition.onresult = (ev) => {
+                let transcript = '';
+                for (const r of ev.results) transcript += r[0].transcript;
+                input.value = baseText + transcript;
+                autosize();
+            };
+            recognition.onerror = (ev) => {
+                if (ev.error === 'not-allowed') alert('Microphone access was blocked. Allow it in the browser settings.');
+            };
+            recognition.onend = () => {
+                micBtn.classList.remove('listening');
+                recognition = null;
+                input.focus();
+            };
+            micBtn.classList.add('listening');
+            recognition.start();
+        });
+    }
+
+    try { messages = JSON.parse(sessionStorage.getItem(STORE)) || []; } catch (e) { messages = []; }
+    render();
+    autosize();
+})();
+</script>
+{% endblock %}
