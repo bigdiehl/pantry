@@ -1,71 +1,76 @@
 # Project TODOs
 
+## Ideas to decide (not started)
+
+- [ ] **WYSIWYG recipe editor** instead of editing markdown. The editor currently has two
+      markdown textareas (Ingredients, Instructions) plus a separate Preview view. Options:
+      a rich-text editor (e.g. Toast UI, Milkdown, TipTap) that still saves markdown, or
+      structured fields (ingredient rows, numbered step rows) that generate markdown.
+      Must keep `recipe.md` as the stored format and work well on a phone.
+- [ ] **Bring back "pending" on the Recipes page?** The redesign removed the Pending tab
+      from Recipes; pending recipes are only visible in Manage > Edit recipes. Decide
+      whether Recipes should show them (read-only, or with an Approve button) or whether
+      Manage is the right home.
+
 ## High Priority
 
-### Server (frank.local) / PWA on Phone
-- [ ] Clone pantry + diehl_recipes on frank, run `scripts/install_service.sh` (retires frank_web_server.service)
-- [ ] Install Tailscale on frank, run `scripts/setup_tailscale.sh` (MagicDNS + HTTPS certs on in admin console)
-- [ ] Install from `https://frank.<tailnet>.ts.net` on phone
-- [ ] Verify offline: shopping list, recipe list, recipe content, images
-- [ ] Fix Lighthouse items: color contrast, heading order, meta description
-- [ ] Decide how web-UI recipe edits on frank get committed to diehl_recipes
-
-### Repo Split / Git
-- [ ] Delete `~/projects/recipes_prefilter_20261122.bundle` and `~/projects/recipes_git_backup_20261122` once confirmed
-- [ ] Remove old `/srv/samba_share/recipes_app` on frank once pantry is running
+### Server (frank) / Phone
+- [ ] Re-run `scripts/install_service.sh` on frank (fixes updater PATH, adds backup timer)
+- [ ] Turn on notifications on the phone (Manage > Weekly plan), send a test
+- [ ] Verify offline on the phone: list, recipes, photos
+- [ ] Remove old `~/samba_share/recipes_app` and `/etc/recipes_app.env` on frank
+- [ ] Delete `~/projects/recipes_prefilter_20261122.bundle` and `~/projects/recipes_git_backup_20261122`
+- [ ] Add `sdiehl` to `systemd-journal` on frank (read deploy logs without sudo)
 
 ### Shopping List
-- [x] Interactive list on `/` with real data + localStorage
 - [ ] Offline recipe selection changes (queue + sync)
-- [ ] Email/PDF/schedule UI on main page (still only on `/archive/shopping_list`)
-- [ ] Mobile usability testing
+- [ ] Mobile usability testing in a store
 
 ### Recipe Import
-- [x] Validation + retry with Gemini feedback (3 max), preview, progress UI
-- [ ] Test on real URLs, including retry path
+- [ ] Test on real URLs and real cookbook photos, including the retry path
+- [ ] Import meal type: desserts get filed as DINNER (only BREAKFAST/LUNCH/DINNER exist)
 
 ## Medium Priority
 
 ### Recipe Management
 - [ ] Validate both recipe.yaml and recipe.md exist on load
-- [ ] Better error handling (log errors, don't crash)
 - [ ] Fix broken recipes:
   - moraccan_chickpea_and_apricot_tagine
   - gnocchi_bake (missing quantities)
   - firehouse_mac_n_cheese (missing quantities)
-- [ ] Move enable/disable and min_period_weeks to web UI
-- [ ] Rename "recipe list" to "saved recipes"
+- [ ] Pending recipes with null servings/meal/category fail to load (log warnings)
+- [ ] Recipes with an image tag but no image file show a broken image (e.g. butternut squash soup)
+
+### Weekly Plan
+- [ ] Mark recipes as cooked (set `last_used_date` when made, not when picked)
+- [ ] Catch up a missed run if the server was down at the scheduled time
+- [ ] Refine selection (N entrees + M sides)
 
 ### Shopping List Features
 - [ ] Scale quantities by number of people
 - [ ] Custom unit rules (e.g., x tbsp butter = 1 stick)
 - [ ] Spice blend lookup (expand to individual spices)
-- [ ] Separate "Spices" section
 - [ ] Better handling of mixed quantity types (1 bunch + unspecified)
-
-### UI/UX
-- [ ] Improve markdown formatting (headings more distinct)
-- [ ] Remember last selected recipe on recipes page (cookie)
-- [ ] Better mobile font consistency
-- [ ] Format next schedule date (month/day names)
 
 ## Low Priority
 
 - [ ] Support multiple meals per recipe (lunch + dinner)
 - [ ] Print recipe functionality
-- [ ] Mirror physical recipe book structure
-- [ ] Refine random selection (specify N entrees + M sides)
 - [ ] Recipe photos for missing images
-- [ ] Shared drive for recipes (edit from any computer)
+- [ ] Lighthouse pass (contrast, heading order)
 
 ## Completed
 
+- [x] UI redesign: tab navigation, list/recipe/editor views, blue theme, offline fonts (2026-11-22)
+- [x] Recipe chat with voice input; photo import (2026-11-22)
+- [x] Weekly plan page with push notifications; weekly data backup job (2026-11-22)
+- [x] Offline: recipe photos warmed, versioned assets (2026-11-22)
+- [x] Docs moved to `docs/` as developer design docs (2026-11-22)
+- [x] frank on pantry.service + Tailscale HTTPS; frank_web_server retired (2026-11-22)
 - [x] Purged recipe data from history, consolidated on master, renamed repo to pantry (2026-11-22)
 - [x] diehl_recipes pushed to GitHub (2026-11-22)
 - [x] pytest suite, GitHub Actions CI, auto-deploy timer (2026-11-22)
-- [x] PWA manifest, service worker, icons; SW scope/caching fixes (2026-10-10)
-- [x] Service install scripts (2026-10-10)
+- [x] PWA manifest, service worker, icons (2026-10-10)
 - [x] Recipe data split to diehl_recipes repo (2026-10-10)
 - [x] Recipe editor, Gemini import with validation, ingredient editor
-- [x] Scheduled weekly emails, PDF generation
 - [x] Recipe selection tracking

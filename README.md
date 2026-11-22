@@ -31,7 +31,7 @@ Tests: `uv run pytest`. CI runs them on every push.
 
 Install as a service (systemd + auto-deploy timer + HTTPS for phone): `scripts/install_service.sh`, then `scripts/setup_tailscale.sh`.
 
-See `doc/SETUP.md` for detailed setup instructions.
+Deployment details: `docs/DEPLOYMENT.md`.
 
 ## Features
 
@@ -43,14 +43,7 @@ See `doc/SETUP.md` for detailed setup instructions.
 
 ## Documentation
 
-- `doc/ARCHITECTURE.md` - System design and data models
-- `doc/SETUP.md` - Installation and configuration
-- `doc/API.md` - Web routes and endpoints
-- `doc/PWA.md` - Progressive web app setup
-- `doc/REMOTE_ACCESS.md` - Options for remote access (Tailscale, Cloudflare, etc.)
-- `doc/INTERACTIVE_SHOPPING_LIST.md` - Mobile shopping list demo
-- `working/TODO.md` - Project TODOs
-- `working/NOTES.md` - Development notes
+Developer documentation on the design lives in [`docs/`](docs/README.md). Tasks and notes: `working/`.
 
 ## Project Status
 

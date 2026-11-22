@@ -1,23 +1,22 @@
-# Documentation
+# Developer Documentation
 
-## Overview
+How Pantry is designed and why. For running it, see the root `README.md`.
 
-- **README.md** (root) - Quick start
-- **ARCHITECTURE.md** - System design, data models, core logic
-- **SETUP.md** - Installation and configuration
-- **API.md** - Web routes and endpoints
+| Doc | Covers |
+|-----|--------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Components, request flow, modules, background work, config |
+| [DATA.md](DATA.md) | Recipe files, state.json, food registry, unit merging |
+| [FRONTEND.md](FRONTEND.md) | Pages, navigation, view patterns, styling, client state |
+| [PWA.md](PWA.md) | Service worker caching, offline behavior, push notifications |
+| [AI.md](AI.md) | Gemini recipe import (URL, text, photo) and recipe chat |
+| [WEEKLY_PLAN.md](WEEKLY_PLAN.md) | Scheduled auto-pick, reminders, email |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Server (frank), systemd units, auto-deploy, Tailscale, env vars |
+| [API.md](API.md) | Route reference |
 
-## Features
+Project tracking lives in `working/TODO.md` and `working/NOTES.md`.
 
-- **PWA.md** - Progressive web app implementation
-- **REMOTE_ACCESS.md** - Options for remote access (Tailscale, Cloudflare, VPN)
-- **INTERACTIVE_SHOPPING_LIST.md** - Mobile shopping list demo
+## Keeping these current
 
-## Utilities
-
-- **scripts/README.md** - Utility scripts (list_gemini_models.py, icon generation)
-
-## Development
-
-- **working/TODO.md** - Project tasks and priorities
-- **working/NOTES.md** - Working notes and design decisions
+These docs describe the design as it is, not as it was. When a change alters
+behavior, data formats, routes, caching, or deployment, update the matching doc
+in the same commit. Delete sections that stop being true rather than annotating them.

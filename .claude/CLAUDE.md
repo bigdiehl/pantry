@@ -1,94 +1,43 @@
 # Pantry
 
-Personal recipe management web app: browse recipes, generate shopping lists, schedule weekly emails, import recipes via Gemini AI.
+Personal recipe app: browse recipes, build a shopping list, weekly auto-pick with phone reminders, Gemini import (URL/text/photo) and recipe chat. Mobile-first PWA.
 
 ## Quick Reference
 
-**Stack:** Flask (Python 3.11+), Pint, Pydantic, Google GenAI, WeasyPrint, APScheduler
+**Stack:** Flask (Python 3.11+), Pint, Pydantic, google-genai, pywebpush, WeasyPrint, APScheduler. Bootstrap 5 + plain JS, no build step.
 
 **Structure:**
-- `recipe_core/` - Core logic (models, shopping list, foods, units, importer, mailer)
-- `web/` - Flask app, templates, static files, routes
-- Recipe data lives in a separate repo, `../diehl_recipes` (override: `RECIPES_DATA_DIR`):
-  `recipes/saved/` (breakfast/, dinner/, sides/), `recipes/pending/`, `recipes/archived/`
-- `scripts/` - Service install, auto-update, Tailscale HTTPS, icon generation
-- `tests/` - pytest suite (fixtures from recipe_core/test)
-- `doc/` - Permanent documentation
-- `working/` - Project TODOs and notes
+- `recipe_core/` - Domain logic, no Flask (models, shopping list, foods, importer, chat, push, mailer)
+- `web/` - Flask app (`app.py`), templates, static (vendored libs in `static/vendor/`)
+- Recipe data: separate repo `../diehl_recipes` (override `RECIPES_DATA_DIR`): `recipes/{saved,pending,archived}/`
+- `scripts/` - Service install, auto-update, data backup, Tailscale HTTPS, icons
+- `tests/` - pytest (fixtures from `recipe_core/test/`); external services always mocked
+- `docs/` - Developer design docs (start at `docs/README.md`)
+- `working/` - TODO and notes
 
-**Run:** `uv run web/app.py` (localhost:5000)
+**Run:** `set -a; . ./.env; set +a; uv run web/app.py` (localhost:5000; `.env` is git-ignored, optional)
 
-**Test:** `uv run pytest` (tests/; CI in .github/workflows/ci.yml)
+**Test:** `uv run pytest`. CI: `.github/workflows/ci.yml`
 
-**Server:** `frank.local` (Debian, ssh). `pantry.service` + `pantry-update.timer` (auto-deploy on push, see doc/SETUP.md)
+**Server:** `frank.local` (Debian, ssh). `pantry.service`, `pantry-update.timer` (pull/test/deploy every 5 min; `sudo systemctl start pantry-update` to deploy now), `pantry-backup.timer` (weekly commit+push of recipe edits). App at `https://frank.<tailnet>.ts.net`. See `docs/DEPLOYMENT.md`.
 
-**Env vars:** GMAIL_SENDER, GMAIL_APP_PASSWORD, GEMINI_API_KEY
+## Pages
 
-## Recipe Storage
+`/` shopping list, `/recipes_list` recipes, `/chat`, `/manage` -> `/plan` (weekly plan), `/editor`, `/import`, `/ingredients`. Mobile bottom tab bar: List, Recipes, Chat, Manage. Full route list: `docs/API.md`.
 
-Each recipe is a directory containing:
-- `recipe.yaml` - Name, servings, ingredients, meal, category, enabled, min_period_weeks
-- `recipe.md` - Instructions (markdown)
-- `image.jpg` (optional)
+## Key Points
 
-**Ingredient format:**
-```yaml
-ingredients:
-  - food: chicken breast  # Must match foods.py
-    quantity: 2 lbs       # Pint format; omit for unspecified
-```
+- Recipe dir = `recipe.yaml` (drives shopping list) + `recipe.md` (what people read) + optional image. Ingredient `food` names match `recipe_core/foods.yaml` (fuzzy fallback); omit `quantity` for unspecified.
+- `web/instance/state.json`: selection, `last_used_date`, `_schedule_config`, `_week_plan`. Written atomically.
+- Shopping list check-offs live in browser localStorage; server only tracks selected recipes.
+- Single process by design (in-process scheduler and import threads). Keep `RECIPES_DEBUG=0` on the server.
+- Service worker: own static files linked via `asset()` (`?v=mtime`); bump `CACHE_VERSION` when precache list/strategies change.
 
-**State:** `web/instance/state.json` tracks selection, last_used_date, weeks_since_last
+## Documentation Rule
 
-## Key Features
-
-**Shopping List:** Merges ingredients from selected recipes, sums compatible units, groups by category (DAIRY, MEAT, VEGETABLE), separates "likely to have" items
-
-**Scheduling:** APScheduler sends weekly shopping list PDF via email, auto-selects recipes based on min_period_weeks
-
-**Import:** Gemini API extracts recipes from URLs/text → preview → save to pending/ → edit → promote to saved/
-
-**PWA:** Service worker served at `/service-worker.js` (scope `/`). Requires HTTPS off localhost (Tailscale serve)
-
-**Shopping List (main, at `/`):** Interactive table built from selected recipes - sortable by name/category, checkboxes, add/remove items, offline support via localStorage. Supersedes the archived pages below (no email/PDF/schedule UI yet - those remain on the archived shopping list page).
-
-**Archived pages:** `/archive/shopping_list` (previous main page: markdown list + email/PDF/weekly schedule UI), `/archive/shopping_demo` (earlier prototype using fake demo data)
-
-## Web Routes
-
-**Pages:** `/` (home/shopping list), `/recipes_list` (browse), `/editor` (edit/import), `/archive/shopping_list`, `/archive/shopping_demo`
-
-**API:**
-- Recipe selection: `POST /recipes_list/toggle/<slug>`, `POST /deselect/<slug>`
-- Shopping list: `GET /markdown/shopping_list`, `POST /send_list`, `GET /download_shopping_list_pdf`
-- Editor: `GET /editor/recipes`, `GET|POST /editor/recipe/<status>/<slug>`, `POST /editor/preview`
-- Import: `POST /import/extract`, `POST /import/confirm`
-- Schedule: `GET|POST /schedule/config`, `POST /schedule/send_now`
-
-## Custom Units
-
-Pint extended with: `bundle`, `can`, `tub`, `bunch`, `clove`, `slice`, `na` (not applicable)
-
-Compatible units merge: "1 cup" + "0.5 cup" = "1.5 cup"
-
-Incompatible units separate: "2 cans + 1 cup"
+`docs/` describes the current design. When a change alters behavior, data formats, routes, caching, or deployment, update the matching doc in the same commit.
 
 ## Known Issues
 
-**Broken recipes:** moraccan_chickpea_and_apricot_tagine, gnocchi_bake, firehouse_mac_n_cheese
-
-**TODO (see working/TODO.md):**
-- Install service + Tailscale HTTPS, test PWA on phone
-- Push diehl_recipes; force-push purged history here
-- Test importer on real URLs
-
-## Documentation
-
-- `doc/ARCHITECTURE.md` - System design
-- `doc/SETUP.md` - Installation and config
-- `doc/API.md` - Route reference
-- `doc/PWA.md` - Progressive web app details
-- `doc/REMOTE_ACCESS.md` - VPN/tunnel options
-- `doc/INTERACTIVE_SHOPPING_LIST.md` - Demo implementation
-- `working/TODO.md` - Project tasks
-- `working/NOTES.md` - Working notes
+- Broken recipes: moraccan_chickpea_and_apricot_tagine, gnocchi_bake, firehouse_mac_n_cheese
+- See `working/TODO.md`
