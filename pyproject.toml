@@ -1,7 +1,7 @@
 [project]
-name = "recipes"
+name = "pantry"
 version = "0.1.0"
-description = "Add your description here"
+description = "Recipe browser, shopping list generator, and weekly meal planner"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -33,5 +33,10 @@ packages = ["recipe_core"]
 
 [dependency-groups]
 dev = [
+    "pytest>=9.2.0",
     "snakeviz>=2.2.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::PendingDeprecationWarning", "ignore:.*CallSpec2.*"]
