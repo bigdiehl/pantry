@@ -39,8 +39,9 @@ the detail: a full-screen sheet on mobile, a sticky panel beside the list on des
   rendered recipe; full width on phones. No separate preview: the form already looks like
   the recipe, and Save returns to the rendered view.
 
-Desktop: in view mode the detail is a sticky panel with its own scroll area, so the recipe
-stays put while you scroll the list. In edit mode (`.recipe-detail.editing`) the panel grows
+Desktop: the sidebar (`.recipes-sidebar`) is sticky and only its recipe list
+(`.recipe-groups`) scrolls; the detail is a sticky panel with its own scroll area. In view
+mode the page itself never scrolls, so a recipe always opens with its top in view. In edit mode (`.recipe-detail.editing`) the panel grows
 with its content and the page scrolls; the detail bar and formatting toolbars stick under
 the site header.
 

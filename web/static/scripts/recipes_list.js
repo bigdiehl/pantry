@@ -136,12 +136,21 @@
 
         try {
             // Saved recipes come from /markdown/recipe (warmed for offline); others from the editor API.
-            const html = status === 'saved'
-                ? (await (await fetch(`/markdown/recipe/${encodeURIComponent(r.name)}`)).json()).content
-                : (await (await fetch(`/editor/recipe/${status}/${encodeURIComponent(slug)}`)).json()).preview_html;
+            const resp = status === 'saved'
+                ? await fetch(`/markdown/recipe/${encodeURIComponent(r.name)}`)
+                : await fetch(`/editor/recipe/${status}/${encodeURIComponent(slug)}`);
+            if (!resp.ok && resp.status !== 404) throw new Error(resp.status);
+            // 404 for a saved recipe = no recipe.md yet; show the "no instructions" note.
+            const body = resp.ok ? await resp.json() : {};
+            const html = status === 'saved' ? body.content : body.preview_html;
             if (state.current && state.current.slug === slug) {
                 $('detailContent').innerHTML = html || '<p class="recipe-detail-placeholder">No instructions yet. Tap Edit to add them.</p>';
                 $('detailContent').closest('.recipe-detail-body').scrollTop = 0;
+                if (DESKTOP.matches) {
+                    window.scrollTo({ top: 0 });
+                    const row = document.querySelector('#recipeGroups .recipe-row.active');
+                    if (row) row.scrollIntoView({ block: 'nearest' });
+                }
             }
         } catch (err) {
             $('detailContent').innerHTML = '<p class="text-danger">Could not load this recipe (offline and not cached yet?).</p>';

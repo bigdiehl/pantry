@@ -470,6 +470,16 @@ body.sheet-open { overflow: hidden; }
         border-radius: var(--radius);
         max-height: calc(100vh - var(--header-h) - 32px);
     }
+    /* Sidebar: header, search and toggles stay put; only the recipe list scrolls, so
+       the page itself doesn't and the recipe panel is always fully in view. */
+    .recipes-sidebar {
+        position: sticky;
+        top: calc(var(--header-h) + 16px);
+        max-height: calc(100vh - var(--header-h) - 32px);
+        display: flex;
+        flex-direction: column;
+    }
+    .recipe-groups { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
     .recipe-detail .back-btn { display: none; }
     .recipe-detail-bar { padding-left: 16px; }
     body.sheet-open { overflow: auto; }
