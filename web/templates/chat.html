@@ -59,6 +59,12 @@
 
     function save() { sessionStorage.setItem(STORE, JSON.stringify(messages)); }
 
+    function ingredientList(items, label) {
+        if (!items || !items.length) return '';
+        return `<div class="card-ingredients"><span>${esc(label)}</span>
+            <ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`;
+    }
+
     function cardsHtml(m, isLast) {
         const recipes = (m.recipes || []).map(r => `
             <div class="suggest-card">
@@ -69,6 +75,8 @@
                     <div class="suggest-card-tag">Your recipe</div>
                     <a class="suggest-card-name" href="/recipes_list?recipe=${encodeURIComponent(r.name)}">${esc(r.name)}</a>
                     <div class="suggest-card-note">${esc(r.reason)}</div>
+                    ${ingredientList(r.missing, "You'll need")}
+                    ${(r.missing || []).length ? '' : ingredientList(r.key_ingredients, 'Main ingredients')}
                 </div>
                 <button class="pill-btn add-btn${r.selected ? ' on' : ''}" data-slug="${esc(r.slug)}">${r.selected ? CHECK + ' On list' : '+ Add'}</button>
             </div>`).join('');
@@ -82,6 +90,7 @@
                         <div class="suggest-card-tag">${esc(w.site)}${w.total_time ? ' &middot; ' + esc(w.total_time) : ''}</div>
                         <a class="suggest-card-name" href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.title)}</a>
                         ${w.summary ? `<div class="suggest-card-note">${esc(w.summary)}</div>` : ''}
+                        ${ingredientList(w.key_ingredients, 'Main ingredients')}
                     </div>
                     <a class="pill-btn" href="/import?url=${encodeURIComponent(w.url)}">Import</a>
                 </div>
@@ -96,7 +105,8 @@
     // so follow-ups like "more like the second one" make sense.
     function contextText(m) {
         let t = m.text || '';
-        if (m.recipes && m.recipes.length) t += '\n[Saved recipes shown: ' + m.recipes.map(r => r.name).join('; ') + ']';
+        if (m.recipes && m.recipes.length) t += '\n[Saved recipes shown: ' + m.recipes.map(r =>
+            r.name + ((r.missing || []).length ? ` (missing: ${r.missing.join(', ')})` : '')).join('; ') + ']';
         if (m.web && m.web.length) t += '\n[Web recipes shown: ' + m.web.map(w => `${w.title} (${w.site})`).join('; ') + ']';
         return t;
     }

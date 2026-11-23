@@ -32,7 +32,7 @@ uv run python scripts/list_gemini_models.py --verbose
 - When debugging model availability errors
 
 **Updating the importer:**
-If you need to change the model used by the recipe importer, edit the `GEMINI_MODEL` constant in `recipe_core/gemini_importer.py`.
+Models are set in `recipe_core/gemini.py` (override with `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` env vars).
 
 ## Service install
 

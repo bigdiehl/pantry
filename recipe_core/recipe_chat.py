@@ -14,11 +14,12 @@ from typing import List, Optional
 
 from google import genai
 from google.genai import types
+
+from recipe_core.gemini import generate
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-CHAT_MODEL = "gemini-2.5-flash"
 MAX_TURNS = 20          # most recent messages sent to the model
 MAX_MESSAGE_CHARS = 4000
 
@@ -44,8 +45,12 @@ Rules:
   shows the web results as cards) and leave `recipes` empty unless asked for both.
 - `reply` is conversational markdown, short and practical. Refer to recipes by name,
   never by slug. Do not list the recommendations in prose; the app shows them as cards.
-- When they list ingredients on hand, point out which saved recipes use them and
-  what they would still need to buy.
+- When they list ingredients on hand, recommend saved recipes that use them and fill
+  each pick's `missing` with the recipe's ingredients they did not mention (simple grocery
+  names, skip salt, pepper, water and cooking oil). Leave `key_ingredients` empty.
+- Otherwise fill each pick's `key_ingredients` with its 3-6 primary ingredients (the
+  defining ones, not staples) and leave `missing` empty.
+- In `reply`, write recipe names in **bold**.
 - Ask a brief follow-up question only if the request is too vague to answer.
 
 Catalog:
@@ -56,6 +61,8 @@ Catalog:
 class RecipePick(BaseModel):
     slug: str
     reason: str = Field(description="One short sentence on why this fits.")
+    missing: List[str] = Field([], description="Ingredients the user said nothing about having, when they listed what they have.")
+    key_ingredients: List[str] = Field([], description="3-6 primary ingredients, when the user didn't list what they have.")
 
 
 class ChatReply(BaseModel):
@@ -109,8 +116,8 @@ def chat(messages: List[dict], catalog: str, api_key: Optional[str] = None, clie
     contents = _to_contents(messages)
     client = client or make_client(api_key)
 
-    response = client.models.generate_content(
-        model=CHAT_MODEL,
+    response = generate(
+        client,
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT.format(catalog=catalog),

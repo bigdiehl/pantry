@@ -13,6 +13,8 @@ from typing import Callable, Optional, List, Tuple
 
 from google import genai
 from google.genai import types
+
+from recipe_core.gemini import RETRYABLE, friendly_error, generate
 from bs4 import BeautifulSoup
 from readability import Document
 import yaml
@@ -21,7 +23,6 @@ from recipe_core.recipe_lib import RecipeData
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = "gemini-2.5-flash"
 MAX_RETRIES = 3
 
 @dataclass
@@ -65,8 +66,8 @@ def _fetch_url(url: str) -> str:
 def _read_url_with_gemini(client, url: str) -> str:
     """Fallback when a site refuses our direct fetch (bot protection, TLS errors):
     let Gemini's URL context tool read the page and return the recipe as plain text."""
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
+    response = generate(
+        client,
         contents=(f"Read the recipe at {url} and return its full text: title, servings, the "
                   "complete ingredient list with quantities, every instruction step, and notes. "
                   "Plain text only, no commentary. If there is a main photo, add a line "
@@ -287,8 +288,8 @@ Content to extract:
         contents = [prompt] + [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in images]
 
     logger.debug("Sending prompt to Gemini API...")
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
+    response = generate(
+        client,
         contents=contents
     )
 
@@ -441,6 +442,10 @@ def extract_recipe(
         except Exception as e:
             logger.error(f"Attempt {attempt_num} failed: {e}")
             last_error = e
+            # Over quota or overloaded even after model fallback: retrying only burns quota.
+            if getattr(e, "code", None) in RETRYABLE:
+                notify(type="failed", attempt=attempt_num, max_attempts=MAX_RETRIES, reason=friendly_error(e))
+                raise ValueError(friendly_error(e))
 
             if attempt < MAX_RETRIES - 1:
                 feedback = f"Extraction failed: {e}\n\nPlease try again and ensure all required fields are present."

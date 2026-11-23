@@ -17,11 +17,12 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 from google.genai import types
+
+from recipe_core.gemini import generate
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-SEARCH_MODEL = "gemini-2.5-flash"
 MAX_RESULTS = 4
 CANDIDATES = 8
 FETCH_TIMEOUT = 3
@@ -38,6 +39,7 @@ class WebRecipe(BaseModel):
     image: Optional[str] = None
     summary: str = ""
     total_time: str = ""
+    key_ingredients: List[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +89,30 @@ def format_duration(iso: str) -> str:
     return " ".join(parts)
 
 
+# Plain salt, black pepper, water, and cooking oil only: "red bell pepper" must survive.
+_STAPLES = re.compile(
+    r"^(((kosher|sea|fine|table)\s+)?salt\b|((freshly\s+)?(ground\s+)?black\s+)?pepper\b(?!s)|"
+    r"water\b|((extra[- ]virgin\s+)?olive|vegetable|canola|neutral|cooking)\s+oil\b|oil\b|cooking spray)", re.I)
+_LEADING_AMOUNT = re.compile(
+    r"^[\d\s/.,½⅓⅔¼¾⅛-]*(\([^)]*\)\s*)?((cups?|tablespoons?|tbsp|teaspoons?|tsp|pounds?|lbs?|ounces?|oz|"
+    r"grams?|g|kg|ml|l|cans?|cloves?|large|medium|small|pinch|dash|bunch|packages?|pkg)\.?\s+)*(of\s+)?", re.I)
+
+
+def key_ingredients(lines: List[str], limit: int = 6) -> List[str]:
+    """Primary ingredients from schema.org recipeIngredient lines: amounts and units stripped,
+    notes after a comma dropped, staples (salt, pepper, oil, water) skipped."""
+    out = []
+    for line in lines or []:
+        text = BeautifulSoup(str(line), "html.parser").get_text(" ").strip()
+        text = _LEADING_AMOUNT.sub("", text).split(",")[0].split(" (")[0].strip(" -")
+        if not text or _STAPLES.search(text) or text.lower() in (o.lower() for o in out):
+            continue
+        out.append(text[:60])
+        if len(out) == limit:
+            break
+    return out
+
+
 def parse_recipe_page(html: str, url: str) -> Optional[WebRecipe]:
     """Extract a WebRecipe from a page's schema.org Recipe JSON-LD, or None if it has none."""
     soup = BeautifulSoup(html, "html.parser")
@@ -107,6 +133,7 @@ def parse_recipe_page(html: str, url: str) -> Optional[WebRecipe]:
         image=urljoin(url, image) if image else None,
         summary=summary[:200] + ("..." if len(summary) > 200 else ""),
         total_time=format_duration(str(recipe.get("totalTime") or recipe.get("cookTime") or "")),
+        key_ingredients=key_ingredients(recipe.get("recipeIngredient") or recipe.get("ingredients") or []),
     )
 
 
@@ -170,8 +197,8 @@ def _grounding_urls(response) -> List[str]:
 def search_recipes(query: str, client, exclude: Optional[List[str]] = None) -> List[WebRecipe]:
     """Up to MAX_RESULTS real recipe pages for `query`, de-duplicated by URL and title."""
     avoid = f" Avoid these, already suggested: {', '.join(exclude)}." if exclude else ""
-    response = client.models.generate_content(
-        model=SEARCH_MODEL,
+    response = generate(
+        client,
         contents=(f"Find {CANDIDATES} different recipes on the web for: {query}. "
                   f"Prefer well-known recipe sites and blogs with full recipes.{avoid} "
                   "List each recipe's name and site."),

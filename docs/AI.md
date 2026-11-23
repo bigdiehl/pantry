@@ -66,6 +66,16 @@ which made every imported recipe open with defaults.
 - Fields it doesn't edit (`enabled`, `min_period_weeks`, `image_url`, `source`) are
   carried over from the input. Nothing is saved; the client applies it, with undo.
 
+## Models and quota (`recipe_core/gemini.py`)
+
+Every Gemini call goes through `generate()`: primary model (`GEMINI_MODEL`, default
+`gemini-2.5-flash`), then fallbacks (`GEMINI_FALLBACK_MODELS`, default
+`gemini-3.5-flash-lite`) on 429 (quota) or 503 (overloaded). Each model has its own
+free-tier quota; the free tier allows about 20 requests/day per model, which a few chat
+turns plus an import can use up. `friendly_error()` turns failures into a short message
+(daily limit, busy, or unavailable). The importer stops retrying on these errors instead
+of burning more quota. Enabling billing on the key removes the daily cap.
+
 ## Recipe chat (`recipe_core/recipe_chat.py`)
 
 Two steps: answer from saved recipes (one fast model call), then, if the user wants,
@@ -89,8 +99,10 @@ capped at 4000 chars). Assistant turns are resent with the cards they showed app
 `response_schema=ChatReply`, JSON mode:
 
 ```python
-ChatReply(reply: str,                       # short markdown
-          recipes: [RecipePick(slug, reason)],
+ChatReply(reply: str,                       # short markdown, recipe names in bold
+          recipes: [RecipePick(slug, reason,
+                               missing,           # what they lack, when they listed what they have
+                               key_ingredients)], # 3-6 primary ingredients otherwise
           offer_search: bool,               # show "Look for new recipes"
           offer_query: str | None,          # query to run if accepted
           web_search: str | None)           # run a web search now
@@ -120,7 +132,8 @@ Gemini's URL context tool works on blocked sites but took ~45s for four pages, t
 for chat; the importer uses it as a fallback instead (see above).
 
 Cards show the photo (hotlinked, `referrerpolicy="no-referrer"`, hidden if it fails),
-site, time, a 2-line summary, and **Import** -> `/import?url=...`, which starts the
+site, time, a 2-line summary, main ingredients (from `recipeIngredient`, amounts and
+staples stripped), and **Import** -> `/import?url=...`, which starts the
 import immediately.
 
 ### State

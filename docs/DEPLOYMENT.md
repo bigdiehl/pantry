@@ -83,6 +83,7 @@ All optional. Missing keys disable features; their routes return 503.
 | Var | Enables / default |
 |-----|-------------------|
 | `GEMINI_API_KEY` | Import and chat |
+| `GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS` | Model choice, see [AI.md](AI.md#models-and-quota-recipe_coregeminipy) |
 | `GMAIL_SENDER`, `GMAIL_APP_PASSWORD` | Email |
 | `FLASK_SECRET_KEY` | Session signing. Installer generates one |
 | `RECIPES_DATA_DIR` | Data repo path. Default `../diehl_recipes` (sibling of the app) |

@@ -12,13 +12,14 @@ import logging
 from typing import List, Optional
 
 from google.genai import types
+
+from recipe_core.gemini import generate
 from pydantic import BaseModel, Field
 
 from recipe_core.recipe_chat import make_client
 
 logger = logging.getLogger(__name__)
 
-REVISE_MODEL = "gemini-2.5-flash"
 MAX_HISTORY = 10
 
 SYSTEM_PROMPT = """You edit recipes for a family's recipe app. You get the current recipe
@@ -86,8 +87,8 @@ def revise_recipe(draft: dict, instruction: str, history: Optional[List[dict]] =
         f"Current recipe:\n{json.dumps(current, ensure_ascii=False)}\n\nInstruction: {instruction[:2000]}"))]))
 
     client = client or make_client(api_key)
-    response = client.models.generate_content(
-        model=REVISE_MODEL,
+    response = generate(
+        client,
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,

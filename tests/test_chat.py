@@ -60,7 +60,7 @@ def test_chat_route_filters_unknown_slugs(client, app_module, monkeypatch):
         captured["catalog"] = catalog
         return ChatReply(
             reply="Make **soup** <script>x</script>",
-            recipes=[RecipePick(slug="butternut_squash_soup", reason="cozy"),
+            recipes=[RecipePick(slug="butternut_squash_soup", reason="cozy", missing=["butternut squash", "bacon"]),
                      RecipePick(slug="made_up_recipe", reason="nope")],
             offer_search=True,
         )
@@ -74,6 +74,8 @@ def test_chat_route_filters_unknown_slugs(client, app_module, monkeypatch):
     assert data["recipes"][0]["selected"] is False
     assert data["recipes"][0]["image_url"] is None      # fixtures have no photos
     assert data["offer_search"] is True and data["web_recipes"] == []
+    assert data["recipes"][0]["missing"] == ["butternut squash", "bacon"]
+    assert data["recipes"][0]["key_ingredients"] == []
     assert "<strong>soup</strong>" in data["reply_html"]
     assert "<script>" not in data["reply_html"]
 
@@ -97,7 +99,8 @@ RECIPE_PAGE = """<html><head>
 <script type="application/ld+json">{"@context": "https://schema.org", "@graph": [
   {"@type": "WebPage", "name": "page"},
   {"@type": ["Recipe"], "name": "Lemon  Chicken", "image": [{"url": "/img/lemon.jpg"}],
-   "description": "<p>Bright and   easy.</p>", "totalTime": "PT1H15M"}]}</script>
+   "description": "<p>Bright and   easy.</p>", "totalTime": "PT1H15M",
+   "recipeIngredient": ["2 lemons, zested", "1 1/2 lbs chicken thighs", "Kosher salt", "2 tbsp olive oil"]}]}</script>
 </head><body></body></html>"""
 
 
@@ -108,6 +111,7 @@ def test_parse_recipe_page():
     assert r.image == "https://www.example.com/img/lemon.jpg"
     assert r.summary == "Bright and easy."
     assert r.total_time == "1 hr 15 min"
+    assert r.key_ingredients == ["lemons", "chicken thighs"]
 
 
 def test_parse_non_recipe_page_is_none():
@@ -152,3 +156,44 @@ def test_revise_recipe_keeps_passthrough_fields():
     assert out["draft"]["image_url"] == "https://ex.com/t.jpg" and out["draft"]["min_period_weeks"] == 3
     roles = [c.role for c in client.models.calls[0]["contents"]]
     assert roles == ["user", "model", "user"]
+
+
+def test_key_ingredients_strips_amounts_and_staples():
+    from recipe_core.recipe_search import key_ingredients
+    lines = ["2 lbs boneless chicken thighs, trimmed", "1 tablespoon olive oil", "Salt and pepper",
+             "1 (14 oz) can diced tomatoes", "1 large red bell pepper, sliced", "Freshly ground black pepper",
+             "water", "3 cloves garlic, minced"]
+    assert key_ingredients(lines) == ["boneless chicken thighs", "diced tomatoes", "red bell pepper", "garlic"]
+
+
+def test_generate_falls_back_on_quota(monkeypatch):
+    from google.genai import errors
+    from recipe_core import gemini
+
+    tried = []
+
+    class Models:
+        def generate_content(self, model, contents, config=None):
+            tried.append(model)
+            if model == "primary":
+                raise errors.ClientError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+            return SimpleNamespace(text="ok")
+
+    monkeypatch.setattr(gemini, "PRIMARY_MODEL", "primary")
+    monkeypatch.setattr(gemini, "FALLBACK_MODELS", ["backup"])
+    assert gemini.generate(SimpleNamespace(models=Models()), contents="hi").text == "ok"
+    assert tried == ["primary", "backup"]
+
+
+def test_generate_does_not_retry_other_errors(monkeypatch):
+    from google.genai import errors
+    from recipe_core import gemini
+
+    class Models:
+        def generate_content(self, model, contents, config=None):
+            raise errors.ClientError(400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}})
+
+    monkeypatch.setattr(gemini, "FALLBACK_MODELS", ["backup"])
+    with pytest.raises(errors.ClientError):
+        gemini.generate(SimpleNamespace(models=Models()), contents="hi")
+    assert "daily free limit" in gemini.friendly_error(errors.ClientError(429, {"error": {"code": 429, "message": "q"}}))
