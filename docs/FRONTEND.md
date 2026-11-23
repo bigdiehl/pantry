@@ -9,10 +9,12 @@ visual is in `web/static/css/style.css`.
 | Route | Template | Tab |
 |-------|----------|-----|
 | `/` | `index.html` | List |
-| `/recipes_list` | `recipes_list.html` + `scripts/recipes_list.js` | Recipes |
+| `/recipes_list` | `recipes_list.html` + `scripts/recipes_list.js` | Recipes (browse, read, edit) |
 | `/chat` | `chat.html` | Chat |
 | `/manage` | `manage.html` | Manage |
-| `/plan`, `/editor`, `/import`, `/ingredients` | one template each | Manage |
+| `/plan`, `/import`, `/ingredients` | one template each | Manage |
+
+`/editor` redirects to the Recipes page (`?recipe=&status=&edit=1`) so old links keep working.
 
 `archive_shopping_list.html` and `archive_shopping_demo.html` are kept for reference
 only; their routes were removed.
@@ -28,28 +30,45 @@ only; their routes were removed.
 
 ## View patterns
 
-**List + detail** (Recipes): one grid. Mobile shows the list; tapping opens the detail
-as a full-screen sheet and pushes a history entry so the back button closes it.
-Desktop (>= 992px) shows the list and a sticky detail panel side by side.
+**List + detail + edit** (Recipes): Saved / Pending / Archived tabs. Tapping a recipe opens
+the detail: a full-screen sheet on mobile, a sticky panel beside the list on desktop
+(>= 992px). The detail has two modes:
+- view: rendered recipe; Add/On list for saved recipes; menu with Move, Archive/Restore, Delete.
+- edit: the shared recipe form; Save / Cancel. The photo block is moved into the form's
+  `.doc-photo-slot` (after Servings) and floats right at its set width (`--photo-w`) like the
+  rendered recipe; full width on phones. No separate preview: the form already looks like
+  the recipe, and Save returns to the rendered view.
 
-**List -> edit -> preview** (Edit recipes): `#editorLayout[data-view]` is `list`,
-`edit`, or `preview`. Mobile shows one view at a time, and each step forward is a
-`history.pushState`; `popstate` restores the view (and asks before discarding unsaved
-edits). Desktop keeps the list visible and swaps edit/preview beside it.
-Preview always reflects saved content (Preview saves first when dirty), because the
-server builds the final markdown from YAML + image + body.
+Desktop: in view mode the detail is a sticky panel with its own scroll area, so the recipe
+stays put while you scroll the list. In edit mode (`.recipe-detail.editing`) the panel grows
+with its content and the page scrolls; the detail bar and formatting toolbars stick under
+the site header.
+
+History entries: mobile pushes `{sheet: 'view'}` then `{sheet: 'edit'}`, desktop only
+`{sheet: 'edit'}`, so Back always undoes one step; leaving edit with unsaved changes asks
+first. Saved recipes are viewed via `/markdown/recipe` (offline-warmed); pending and
+archived via `/editor/recipe/<status>/<slug>`. Editing needs a connection.
 
 **Import review**: after extraction the draft opens in the recipe form; Add to recipes
 (saved/), Save for later (pending/), or Discard. A photo found on the page is shown and
 downloaded on save unless unticked.
 
 **Recipe form** (`_recipe_form.html` + `scripts/recipe_form.js`): one form used by Edit
-recipes and the import review. `RecipeForm.mount(el, {onChange})` returns `get()`/`set(state)`/`reset()`.
-State is the recipe form JSON: `name, servings, category, meal, enabled, min_period_weeks,
-ingredients[{food, quantity}], ingredients_md, instructions_md`; unknown keys (`image_url`,
-`source`) pass through untouched. It contains:
+recipes (Recipes page edit mode) and the import review. `RecipeForm.mount(el, {onChange})` returns `get()`/`set(state)`/`reset()`.
+State is the recipe form JSON: `name, servings, servings_note, category, meal, enabled,
+min_period_weeks, ingredients[{food, quantity}], ingredients_md, instructions_md`; unknown keys
+(`image_url`, `source`) pass through untouched.
+
+Layout mirrors the rendered recipe (`.recipe-doc.markdown-content`): the name as an
+editable title, a fixed "Servings:" label with a number input and a free-text note, then
+fixed "Ingredients" and "Instructions" headings, each over a rich text area. Headings and
+the "Servings:" label are not editable. The form is two white cards (`.form-card`) with a
+gap: the recipe (with the AI box on top), then "Shopping list and settings" (type, meal,
+repeat weeks, auto-pick, shopping list items), always expanded. In edit mode the Recipes
+detail panel turns to the page background so the cards stand apart. It contains:
 - Two `RichEditor`s (`scripts/rich_editor.js`): contenteditable with a toolbar (section
-  heading, bold, italic, bullets, numbers) and a "Text" toggle for raw markdown. `marked`
+  heading, bold, italic, bullets, numbers; shown only while that section has focus) and a
+  "Text" toggle for raw markdown. `marked`
   renders markdown in, `turndown` converts back; paste is plain text only. Storage stays
   markdown. Uses `document.execCommand`, which is deprecated but supported everywhere and
   needs no build step.
@@ -79,8 +98,7 @@ autosaved on change (debounced 400ms).
 |-----|---------|------|-------|
 | `shopping_list_table_state` | localStorage | List | `{checked, dismissed, custom, week}` |
 | `cartOpen`, `haveOpen` | sessionStorage | List | Collapsible sections open |
-| `recipesLast`, `recipesGroupBy` | localStorage | Recipes | Last opened recipe, grouping |
-| `lastSelectedRecipe/Status`, `editorGroupBy` | localStorage | Editor | Same for the editor |
+| `recipesLast`, `recipesGroupBy` | localStorage | Recipes | Last opened recipe (`{slug, status}`), grouping |
 | `recipeChat` | sessionStorage | Chat | Conversation (cleared on New chat / tab close) |
 
 List rows are keyed `"<Category>::<food name>"`; custom items by index. When the
@@ -90,10 +108,11 @@ reset so each plan starts a clean checklist.
 ## Conventions
 
 - `html, body` use `overflow-x: clip`, not `hidden`: `hidden` on both makes body a scroll
-  container and breaks every `position: sticky` (header, editor bars, toolbars).
+  container and breaks every `position: sticky` (header, toolbars). Inside the recipe
+  detail's own scroll area, toolbars use `--sticky-top: 0`.
 - Escape anything user- or model-provided before putting it in `innerHTML` (`esc()`
   helpers in each page). Chat replies are HTML-escaped server-side before markdown.
 - Own static files are linked with `asset('path')`, which appends `?v=<mtime>`
   (see [PWA.md](PWA.md#asset-versioning)). Vendored files use `url_for('static', ...)`.
-- jQuery is only used by the editor and ingredients pages; new code uses plain JS.
+- jQuery is only used by the ingredients page; new code uses plain JS.
 - Vendored libs: Bootstrap, jQuery, `marked`, `turndown`, fonts (`static/vendor/`).

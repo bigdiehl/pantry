@@ -4,8 +4,8 @@ JSON unless noted. Routes that need a missing API key return 503 with `{error}`.
 
 ## Pages (HTML)
 
-`/` list, `/recipes_list` recipes, `/chat`, `/manage`, `/plan`, `/editor`, `/import`,
-`/ingredients`. `/service-worker.js` is served from the root for scope.
+`/` list, `/recipes_list` recipes (`?recipe=<slug>&status=&edit=1`), `/chat`, `/manage`, `/plan`,
+`/import`, `/ingredients`. `/editor` redirects to `/recipes_list`. `/service-worker.js` is served from the root for scope.
 
 ## Recipes and selection
 
@@ -35,7 +35,7 @@ JSON unless noted. Routes that need a missing API key return 503 with `{error}`.
 | `POST /editor/recipe/<status>/<slug>` | Save form state -> writes `recipe.yaml` + `recipe.md`, returns `preview_html` |
 | `POST/DELETE /editor/recipe/<status>/<slug>/image` | Upload (multipart `image`) or remove the photo |
 | `POST /editor/recipe/<status>/<slug>/image/width` | `{width}` 100-1200 |
-| `POST /editor/preview` | `{markdown, slug?}` -> `{html}` (used by the import preview) |
+| `POST /editor/preview` | `{markdown, slug?}` -> `{html}` (no longer used by the UI) |
 | `POST /pending/promote/<slug>`, `/editor/demote/<slug>` | pending <-> saved |
 | `POST /editor/archive/<slug>`, `/editor/unarchive/<slug>` | to/from archived |
 | `POST /editor/delete/<slug>`, `/pending/discard/<slug>`, `/editor/delete_archived/<slug>` | Delete |

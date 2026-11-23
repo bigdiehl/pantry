@@ -1,12 +1,5 @@
 # Project TODOs
 
-## Ideas to decide (not started)
-
-- [ ] **Bring back "pending" on the Recipes page?** The redesign removed the Pending tab
-      from Recipes; pending recipes are only visible in Manage > Edit recipes. Decide
-      whether Recipes should show them (read-only, or with an Approve button) or whether
-      Manage is the right home.
-
 ## High Priority
 
 ### Server (frank) / Phone
@@ -42,7 +35,12 @@
 - [ ] Refine selection (N entrees + M sides)
 
 ### Shopping List Features
-- [ ] Scale quantities by number of people
+- [ ] **Recipe multiples** (double, half, x3): pick a multiplier when viewing a recipe or
+      adding it to the list. Quantities update in the displayed recipe text and in the
+      shopping list (shopping items scale via Pint; the markdown ingredient lines need
+      their leading amounts parsed and rewritten, e.g. "1 1/2 cups" -> "3 cups").
+      Servings line updates too. Decide whether the multiplier is per selection (state.json)
+      or saved into the recipe.
 - [ ] Custom unit rules (e.g., x tbsp butter = 1 stick)
 - [ ] Spice blend lookup (expand to individual spices)
 - [ ] Better handling of mixed quantity types (1 bunch + unspecified)
@@ -56,6 +54,7 @@
 
 ## Completed
 
+- [x] Editing folded into the Recipes page (Edit button); Pending tab back on Recipes (2026-11-22)
 - [x] WYSIWYG recipe editor, import review with edit/AI changes, Add to recipes (2026-11-22)
 - [x] Fixed: imported recipe.yaml unreadable (python tags); mixed-number quantities parsed wrong (2026-11-22)
 - [x] UI redesign: tab navigation, list/recipe/editor views, blue theme, offline fonts (2026-11-22)

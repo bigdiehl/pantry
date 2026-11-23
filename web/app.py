@@ -35,6 +35,7 @@ from recipe_core.gemini_importer import extract_recipe, ImportResult, MAX_RETRIE
 from recipe_core.recipe_chat import ChatReply, build_catalog, chat as recipe_chat, make_client
 from recipe_core.recipe_search import search_recipes
 from recipe_core.recipe_revise import revise_recipe
+from recipe_core.gemini import friendly_error
 from recipe_core.push import PushStore
 
 logger = logging.getLogger(__name__)
@@ -793,10 +794,12 @@ def download_shopping_list_pdf():
 def recipes_list():
     recipes = sorted(get_all_recipes(), key=lambda r: r.name)
     archived_recipes = sorted(_list_flat_recipes(ARCHIVED_DIR, "archived"), key=lambda r: r["name"])
+    pending_recipes = sorted(_list_flat_recipes(PENDING_DIR, "pending"), key=lambda r: r["name"])
     return render_template(
         "recipes_list.html",
         recipes=[asdict(r) for r in recipes],
         archived_recipes=archived_recipes,
+        pending_recipes=pending_recipes,
         active_page="recipes_list",
         email_enabled=EMAIL_ENABLED,
         import_enabled=IMPORT_ENABLED,
@@ -1098,12 +1101,23 @@ def _recipe_dir_for_status(status: str, slug: str) -> str | None:
     return None
 
 def _find_recipe_image(recipe_dir: str) -> str | None:
-    """Return the filename of the recipe's image (e.g. 'image.jpg'), or None."""
-    for f in os.listdir(recipe_dir):
-        name, ext = osp.splitext(f)
-        if name.lower() == "image" and ext.lower() in ALLOWED_IMAGE_EXTENSIONS:
+    """The recipe's photo filename, or None. Prefers image.*, then the local file recipe.md's
+    <img> points at (older recipes use names like cajun_chicken_linguine.jpg), then any image."""
+    try:
+        files = sorted(os.listdir(recipe_dir))
+    except OSError:
+        return None
+    images = [f for f in files if osp.splitext(f)[1].lower() in ALLOWED_IMAGE_EXTENSIONS]
+    for f in images:
+        if osp.splitext(f)[0].lower() == "image":
             return f
-    return None
+    md_path = osp.join(recipe_dir, "recipe.md")
+    if osp.exists(md_path):
+        with open(md_path, encoding="utf-8") as fh:
+            m = re.search(r'<img\b[^>]*\bsrc=["\']?([^"\'\s>]+)', fh.read(), re.IGNORECASE)
+        if m and m.group(1) in images:
+            return m.group(1)
+    return images[0] if images else None
 
 def _recipe_image_url(status: str, slug: str, filename: str) -> str:
     return f"/{_STATUS_URL_PREFIX[status]}/{slug}/{filename}"
@@ -1159,11 +1173,19 @@ def _split_recipe_markdown(md_content: str) -> tuple[str, str, bool]:
            "\n\n".join(p for p in instructions_parts if p).strip(), \
            matched
 
+_SERVINGS_LINE_RE = re.compile(r"^Servings:[ \t]*(\d+)?[ \t]*(.*)$", re.MULTILINE | re.IGNORECASE)
+
+def _servings_note(md_content: str) -> str:
+    """Free text after the number on the 'Servings: N ...' line of recipe.md."""
+    m = _SERVINGS_LINE_RE.search(md_content or "")
+    return m.group(2).strip() if m else ""
+
 def _render_recipe_markdown(name: str, servings, image_filename: str | None,
                              ingredients_md: str, instructions_md: str,
-                             image_width: int = DEFAULT_IMAGE_WIDTH) -> str:
+                             image_width: int = DEFAULT_IMAGE_WIDTH, servings_note: str = "") -> str:
     """Build a full recipe.md from its structured pieces."""
-    lines = [f"# {name}", "", f"Servings: {servings}", ""]
+    note = " ".join((servings_note or "").split())
+    lines = [f"# {name}", "", f"Servings: {servings}" + (f" {note}" if note else ""), ""]
     if image_filename:
         lines += [f'<img style="float: right;" src="{image_filename}" width={image_width}>', ""]
     lines += [
@@ -1215,17 +1237,18 @@ def _rewrite_recipe_image_tag(status: str, slug: str, recipe_dir: str, image_fil
             pass
 
     md_path = osp.join(recipe_dir, "recipe.md")
-    ingredients_md, instructions_md = "", ""
+    ingredients_md, instructions_md, note = "", "", ""
     current_width = DEFAULT_IMAGE_WIDTH
     if osp.exists(md_path):
         with open(md_path) as f:
             existing_md = f.read()
         ingredients_md, instructions_md, _ = _split_recipe_markdown(existing_md)
         current_width = _extract_image_width(existing_md)
+        note = _servings_note(existing_md)
 
     new_md = _render_recipe_markdown(
         name, servings, image_filename, ingredients_md, instructions_md,
-        image_width=image_width if image_width is not None else current_width
+        image_width=image_width if image_width is not None else current_width, servings_note=note
     )
     with open(md_path, "w") as f:
         f.write(new_md)
@@ -1256,13 +1279,7 @@ def chat_page():
 
 def _recipe_thumbnail(recipe: Recipe) -> str | None:
     """URL of a saved recipe's photo: image.* if present, else any image file in its folder."""
-    recipe_dir = osp.join(RECIPES_DIR, recipe.path)
-    try:
-        name = _find_recipe_image(recipe_dir) or next(
-            (f for f in sorted(os.listdir(recipe_dir))
-             if osp.splitext(f)[1].lower() in ALLOWED_IMAGE_EXTENSIONS), None)
-    except OSError:
-        return None
+    name = _find_recipe_image(osp.join(RECIPES_DIR, recipe.path))
     return f"/recipes/{recipe.slug}/{name}" if name else None
 
 def _chat_catalog() -> tuple[str, dict]:
@@ -1302,7 +1319,7 @@ def chat_message():
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Chat request failed")
-        return jsonify({"error": f"The assistant is unavailable right now ({type(e).__name__})."}), 502
+        return jsonify({"error": friendly_error(e)}), 502
 
     picks, seen = [], set()
     for pick in result.recipes:
@@ -1310,7 +1327,8 @@ def chat_message():
         if recipe and pick.slug not in seen:
             seen.add(pick.slug)
             picks.append({"slug": recipe.slug, "name": recipe.name, "reason": pick.reason,
-                          "selected": recipe.selected, "image_url": _recipe_thumbnail(recipe)})
+                          "selected": recipe.selected, "image_url": _recipe_thumbnail(recipe),
+                          "missing": pick.missing[:12], "key_ingredients": pick.key_ingredients[:8]})
 
     web = []
     if result.web_search:
@@ -1318,7 +1336,7 @@ def chat_message():
             web = [r.model_dump() for r in web_recipe_search(result.web_search, exclude=[r.name for r in by_slug.values()])]
         except Exception as e:
             logger.exception("Web recipe search failed")
-            result.reply += f"\n\n(The web search failed: {type(e).__name__}. Try again in a moment.)"
+            result.reply += f"\n\n(The web search failed: {friendly_error(e)})"
         if result.web_search and not web and "search failed" not in result.reply:
             result.reply += "\n\nI couldn't find recipe pages for that. Try describing it differently."
 
@@ -1342,8 +1360,11 @@ def web_recipe_search(query: str, exclude: list[str] | None = None):
 
 @app.route("/editor", methods=["GET"])
 def editor_page():
-    """Render the Edit Recipes page."""
-    return render_template("editor.html", active_page="editor", email_enabled=EMAIL_ENABLED, import_enabled=IMPORT_ENABLED)
+    """Editing lives on the Recipes page now; keep old links working."""
+    slug, status = request.args.get("edit"), request.args.get("status", "saved")
+    if slug:
+        return redirect(url_for("recipes_list", recipe=slug, status=status, edit=1))
+    return redirect(url_for("recipes_list", status=request.args.get("tab", "saved")))
 
 def _list_flat_recipes(dir_path: str, status: str) -> list[dict]:
     """List recipes for a flat (non-meal-nested) directory, e.g. pending/archived."""
@@ -1443,6 +1464,7 @@ def load_recipe(status, slug):
             md_content = f.read()
 
     ingredients_md, instructions_md, markdown_matched = _split_recipe_markdown(md_content)
+    metadata["servings_note"] = _servings_note(md_content)
 
     image_filename = _find_recipe_image(recipe_dir)
     image_url = _recipe_image_url(status, slug, image_filename) if image_filename else None
@@ -1505,7 +1527,8 @@ def _validate_recipe_form(data: dict) -> tuple[dict | None, str | None]:
         "ingredients": ingredients,
     }, None
 
-def _write_recipe(recipe_dir: str, yaml_data: dict, ingredients_md: str, instructions_md: str) -> str:
+def _write_recipe(recipe_dir: str, yaml_data: dict, ingredients_md: str, instructions_md: str,
+                  servings_note: str = "") -> str:
     """Write recipe.yaml and a regenerated recipe.md. Returns the markdown."""
     os.makedirs(recipe_dir, exist_ok=True)
     with open(osp.join(recipe_dir, "recipe.yaml"), "w") as f:
@@ -1519,7 +1542,7 @@ def _write_recipe(recipe_dir: str, yaml_data: dict, ingredients_md: str, instruc
             width = _extract_image_width(f.read())
     md_content = _render_recipe_markdown(
         yaml_data["name"], yaml_data["servings"], _find_recipe_image(recipe_dir),
-        ingredients_md or "", instructions_md or "", image_width=width)
+        ingredients_md or "", instructions_md or "", image_width=width, servings_note=servings_note)
     with open(md_path, "w") as f:
         f.write(md_content)
     return md_content
@@ -1539,7 +1562,7 @@ def save_recipe(status, slug):
         return jsonify({"error": error}), 400
     try:
         md_content = _write_recipe(recipe_dir, yaml_data, data.get("ingredients_md", ""),
-                                   data.get("instructions_md", ""))
+                                   data.get("instructions_md", ""), data.get("servings_note", ""))
     except Exception as e:
         logger.error("Failed to save recipe: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -1725,6 +1748,7 @@ def _draft_from_import(result: ImportResult) -> dict:
         "min_period_weeks": data.get("min_period_weeks", 4),
         "ingredients": [{"food": i["food"], "quantity": i.get("quantity", "")} for i in data["ingredients"]],
         "ingredients_md": ingredients_md, "instructions_md": instructions_md,
+        "servings_note": _servings_note(result.markdown),
         "image_url": image_url if image_url and image_url.startswith(("http://", "https://")) else None,
         "source": result.source,
     }
@@ -1900,7 +1924,8 @@ def import_confirm():
         os.makedirs(recipe_dir)
         if draft.get("image_url"):
             _download_recipe_image(draft["image_url"], recipe_dir)
-        _write_recipe(recipe_dir, yaml_data, draft.get("ingredients_md", ""), draft.get("instructions_md", ""))
+        _write_recipe(recipe_dir, yaml_data, draft.get("ingredients_md", ""), draft.get("instructions_md", ""),
+                      draft.get("servings_note", ""))
         with open(osp.join(recipe_dir, "source.txt"), "w") as f:
             f.write(str(draft.get("source") or (session.get("pending_import") or {}).get("source") or "import"))
     except Exception as e:
@@ -1935,7 +1960,7 @@ def recipe_revise():
                                 history=body.get("history") or [], api_key=GEMINI_API_KEY)
     except Exception as e:
         logger.exception("Recipe revision failed")
-        return jsonify({"error": f"The assistant is unavailable right now ({type(e).__name__})."}), 502
+        return jsonify({"error": friendly_error(e)}), 502
     return jsonify({"success": True, **revised})
 
 # @app.route("/import/extract", methods=["POST"])

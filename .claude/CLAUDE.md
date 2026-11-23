@@ -23,7 +23,7 @@ Personal recipe app: browse recipes, build a shopping list, weekly auto-pick wit
 
 ## Pages
 
-`/` shopping list, `/recipes_list` recipes, `/chat`, `/manage` -> `/plan` (weekly plan), `/editor`, `/import`, `/ingredients`. Mobile bottom tab bar: List, Recipes, Chat, Manage. Full route list: `docs/API.md`.
+`/` shopping list, `/recipes_list` recipes (browse + Edit mode; Saved/Pending/Archived), `/chat`, `/manage` -> `/plan` (weekly plan), `/import`, `/ingredients`. Mobile bottom tab bar: List, Recipes, Chat, Manage. Full route list: `docs/API.md`.
 
 ## Key Points
 

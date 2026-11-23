@@ -14,6 +14,7 @@
             <div class="recipes-toolbar">
                 <div class="segmented" id="statusToggle">
                     <button type="button" data-value="saved" class="active">Saved</button>
+                    <button type="button" data-value="pending">Pending</button>
                     <button type="button" data-value="archived">Archived</button>
                 </div>
                 <div class="segmented" id="groupToggle">
@@ -29,12 +30,60 @@
                 <button class="icon-btn back-btn" id="detailBack" aria-label="Back">
                     <svg viewBox="0 0 24 24" width="22" height="22"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
-                <div class="recipe-detail-title" id="detailTitle">Recipe</div>
-                <button class="pill-btn" id="detailToggle" hidden></button>
+                <div class="recipe-detail-title">
+                    <div id="detailTitle">Recipe</div>
+                    <div class="pane-title-meta" id="detailMeta"></div>
+                </div>
+
+                <span class="detail-actions" id="viewActions" hidden>
+                    <button class="pill-btn" id="detailToggle" hidden></button>
+                    <button class="pill-btn" id="editBtn">Edit</button>
+                    <span class="dropdown">
+                        <button class="icon-btn" data-bs-toggle="dropdown" aria-label="More actions">
+                            <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><button class="dropdown-item" id="moveBtn"></button></li>
+                            <li><button class="dropdown-item" id="archiveBtn"></button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item text-danger" id="deleteBtn">Delete permanently</button></li>
+                        </ul>
+                    </span>
+                </span>
+                <span class="detail-actions" id="editActions" hidden>
+                    <button class="btn btn-sm btn-outline-secondary" id="cancelEditBtn">Cancel</button>
+                    <button class="btn btn-sm btn-primary" id="saveBtn" disabled>Saved</button>
+                </span>
             </div>
+
             <div class="recipe-detail-body">
+                <!-- View mode -->
                 <div class="markdown-content" id="detailContent">
                     <p class="recipe-detail-placeholder">Pick a recipe to read it here.</p>
+                </div>
+
+                <!-- Edit mode -->
+                <div id="detailEdit" hidden>
+                    <div id="yamlErrorWarning" class="alert alert-danger small" style="display: none;"></div>
+                    <div id="markdownSplitWarning" class="alert alert-warning small" style="display: none;">
+                        Couldn't split this recipe's text into ingredients and instructions automatically.
+                        Check the Instructions and move anything that belongs in Ingredients.
+                    </div>
+                    {% include '_recipe_form.html' %}
+                    <!-- Moved into the form's .doc-photo-slot by recipes_list.js -->
+                    <figure class="doc-photo" id="photoBlock">
+                        <img id="recipeImagePreview" src="" alt="Recipe photo" hidden>
+                        <button type="button" id="recipeImageEmpty" class="doc-photo-empty">+ Add photo</button>
+                        <figcaption class="doc-photo-controls" id="photoControls" hidden>
+                            <button id="recipeImageActionBtn" class="btn btn-sm btn-outline-secondary" type="button">Remove photo</button>
+                            <button id="recipeImageReplaceBtn" class="btn btn-sm btn-outline-secondary" type="button">Change</button>
+                            <span id="recipeImageWidthWrap" class="img-width-wrap">
+                                <label for="recipeImageWidth" class="small text-muted mb-0">Width</label>
+                                <input type="number" id="recipeImageWidth" class="form-control form-control-sm" style="width: 80px;" min="100" max="1200" step="10">
+                            </span>
+                        </figcaption>
+                        <input type="file" id="recipeImageInput" accept="image/*" hidden>
+                    </figure>
                 </div>
             </div>
         </aside>
@@ -42,9 +91,14 @@
 </div>
 
 <script id="recipesData" type="application/json">{{ recipes | tojson }}</script>
+<script id="pendingRecipesData" type="application/json">{{ pending_recipes | tojson }}</script>
 <script id="archivedRecipesData" type="application/json">{{ archived_recipes | tojson }}</script>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/marked.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/turndown.js') }}"></script>
+<script src="{{ asset('scripts/rich_editor.js') }}"></script>
+<script src="{{ asset('scripts/recipe_form.js') }}"></script>
 <script src="{{ asset('scripts/recipes_list.js') }}"></script>
 {% endblock %}

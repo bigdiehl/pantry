@@ -67,29 +67,30 @@
     <!-- Review: edit the import (or ask AI to change it) before adding it -->
     <div id="importPreview" style="display: none;">
         <div class="section-label">Review</div>
-        <div class="panel">
-            <div class="p-3 border-bottom small text-muted">
-                From <span id="extractedSource"></span>. Edit anything below, or ask AI to change it, then add it.
-            </div>
-            <div id="importValidationWarnings" class="alert alert-warning m-3 small" style="display: none;">
+        <div class="panel p-3 small text-muted">
+            From <span id="extractedSource"></span>. Edit anything below, or ask AI to change it, then add it.
+            <div id="importValidationWarnings" class="alert alert-warning mt-3 mb-0" style="display: none;">
                 <strong>Some problems remain after retries. Check these:</strong>
                 <ul id="importValidationWarningsList" class="mb-0"></ul>
             </div>
-            <div class="review-photo p-3 pb-0" id="reviewPhoto" hidden>
+        </div>
+        <div class="mt-3">
+            {% include '_recipe_form.html' %}
+        </div>
+            <!-- Moved into the form's .doc-photo-slot below -->
+            <figure class="doc-photo has-photo" id="reviewPhoto" hidden>
                 <img id="reviewPhotoImg" alt="Recipe photo" referrerpolicy="no-referrer">
-                <label class="form-check small mt-2">
-                    <input type="checkbox" class="form-check-input" id="keepPhoto" checked>
-                    <span class="form-check-label">Save this photo with the recipe</span>
-                </label>
-            </div>
-            <div class="p-3">
-                {% include '_recipe_form.html' %}
-            </div>
-            <div class="review-actions">
-                <button id="confirmImportBtn" class="btn btn-primary flex-fill">Add to recipes</button>
-                <button id="pendingImportBtn" class="btn btn-outline-primary">Save for later</button>
-                <button id="discardImportBtn" class="btn btn-outline-secondary">Discard</button>
-            </div>
+                <figcaption class="doc-photo-controls">
+                    <label class="form-check small mb-0">
+                        <input type="checkbox" class="form-check-input" id="keepPhoto" checked>
+                        <span class="form-check-label">Save this photo</span>
+                    </label>
+                </figcaption>
+            </figure>
+        <div class="review-actions">
+            <button id="confirmImportBtn" class="btn btn-primary flex-fill">Add to recipes</button>
+            <button id="pendingImportBtn" class="btn btn-outline-primary">Save for later</button>
+            <button id="discardImportBtn" class="btn btn-outline-secondary">Discard</button>
         </div>
     </div>
 </div>
@@ -209,6 +210,7 @@
     }
 
     const form = RecipeForm.mount(document.getElementById('recipeForm'));
+    document.querySelector('#recipeForm .doc-photo-slot').appendChild($('reviewPhoto'));
     let reviewing = false;
 
     function showReview(draft) {
@@ -303,7 +305,7 @@
             reviewing = false;
             location.href = destination === 'saved'
                 ? `/recipes_list?recipe=${encodeURIComponent(data.slug)}`
-                : `/editor?edit=${encodeURIComponent(data.slug)}&status=pending`;
+                : `/recipes_list?recipe=${encodeURIComponent(data.slug)}&status=pending`;
         } catch (err) {
             alert('Could not save: ' + err.message);
             document.querySelectorAll('.review-actions .btn').forEach(b => { b.disabled = false; });

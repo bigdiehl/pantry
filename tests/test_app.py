@@ -1,7 +1,7 @@
 import pytest
 
 
-@pytest.mark.parametrize("path", ["/", "/recipes_list", "/chat", "/manage", "/plan", "/editor", "/import", "/ingredients",
+@pytest.mark.parametrize("path", ["/", "/recipes_list", "/chat", "/manage", "/plan", "/import", "/ingredients",
                                   "/service-worker.js", "/api/features", "/editor/recipes"])
 def test_pages_load(client, path):
     assert client.get(path).status_code == 200
@@ -172,3 +172,41 @@ def test_recipe_revise_route(client, app_module, monkeypatch):
     assert data["note"] == "Doubled it." and data["draft"]["servings"] == 8
     assert seen["instruction"] == "double it"
     assert client.post("/recipe/revise", json={"draft": _draft(), "instruction": ""}).status_code == 400
+
+
+def test_editor_redirects_to_recipes_page(client):
+    r = client.get("/editor?edit=card_soup&status=pending")
+    assert r.status_code == 302 and "/recipes_list?recipe=card_soup&status=pending&edit=1" in r.headers["Location"]
+    assert "status=pending" in client.get("/editor?tab=pending").headers["Location"]
+
+
+def test_recipes_page_lists_pending(client, app_module):
+    import os
+    os.makedirs(os.path.join(app_module.PENDING_DIR, "new_dish"))
+    with open(os.path.join(app_module.PENDING_DIR, "new_dish", "recipe.yaml"), "w") as f:
+        f.write("name: New Dish\nservings: 2\nmeal: dinner\ncategory: side\ningredients: []\n")
+    html = client.get("/recipes_list").get_data(as_text=True)
+    assert '"slug": "new_dish"' in html and 'id="pendingRecipesData"' in html
+
+
+def test_find_recipe_image_handles_legacy_names(app_module, tmp_path):
+    d = tmp_path / "cajun"
+    d.mkdir()
+    (d / "cajun_chicken_linguine.jpg").write_bytes(b"x")
+    (d / "recipe.md").write_text('# Cajun\n\n<img src="cajun_chicken_linguine.jpg" width=300>\n')
+    assert app_module._find_recipe_image(str(d)) == "cajun_chicken_linguine.jpg"
+    (d / "image.png").write_bytes(b"y")
+    assert app_module._find_recipe_image(str(d)) == "image.png"
+
+
+def test_servings_note_round_trip(client, app_module):
+    assert client.post("/import/confirm", json={"draft": _draft(servings=12, servings_note="biscuits, about 3 inch"),
+                                                "destination": "pending"}).status_code == 200
+    loaded = client.get("/editor/recipe/pending/weeknight_tacos").get_json()
+    assert loaded["metadata"]["servings"] == 12
+    assert loaded["metadata"]["servings_note"] == "biscuits, about 3 inch"
+    form = {**loaded["metadata"], "servings_note": "", "ingredients_md": loaded["ingredients_md"],
+            "instructions_md": loaded["instructions_md"]}
+    assert client.post("/editor/recipe/pending/weeknight_tacos", json=form).status_code == 200
+    md = open(f"{app_module.PENDING_DIR}/weeknight_tacos/recipe.md").read()
+    assert "Servings: 12\n" in md

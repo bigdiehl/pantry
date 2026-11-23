@@ -39,8 +39,10 @@ ingredient list lives in `recipe.md` and can differ ("1 cup chopped onion").
 
 ### recipe.md
 
-The editor regenerates the header (`# Name`, `Servings: N`, image tag) from the YAML
-and image, and stores the body as two parts split on `## Ingredients` and the next
+The editor regenerates the header (`# Name`, `Servings: N <note>`, image tag) from the
+YAML, the servings note, and the image. The note (free text after the number, e.g.
+"Servings: 12 biscuits") lives only in `recipe.md`. Photo lookup (`_find_recipe_image`):
+`image.*`, else the local file the `<img>` tag names, else any image in the folder. The editor stores the body as two parts split on `## Ingredients` and the next
 heading (usually `## Instructions`/`## Directions`). Image paths are relative; routes
 rewrite them to `/recipes/<slug>/...` (or `/pending/`, `/archived/`) when rendering.
 

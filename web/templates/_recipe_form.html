@@ -1,5 +1,8 @@
-{# Shared recipe form: Edit recipes and import review. Driven by static/scripts/recipe_form.js. #}
+{# Shared recipe form: Recipes page edit mode and import review. Driven by static/scripts/recipe_form.js.
+   Laid out like the rendered recipe: editable title, fixed "Servings:" with a number and an
+   optional note, fixed Ingredients / Instructions headings with rich text under each. #}
 <div class="recipe-form" id="recipeForm">
+  <div class="form-card">
     <div class="ai-assist{{ '' if import_enabled else ' d-none' }}">
         <div class="ai-assist-row">
             <input type="text" class="form-control ai-input" placeholder="Ask AI to change it, e.g. make it dairy-free" enterkeyhint="send">
@@ -11,54 +14,61 @@
         </div>
     </div>
 
-    <div class="section-label">Details</div>
-    <div class="row g-2 mb-2">
-        <div class="col-12">
-            <label class="form-label small text-muted mb-1" for="rfName">Name</label>
-            <input type="text" id="rfName" data-field="name" class="form-control">
-        </div>
-        <div class="col-6 col-md-3">
-            <label class="form-label small text-muted mb-1" for="rfCategory">Type</label>
-            <select id="rfCategory" data-field="category" class="form-select">
-                <option value="ENTREE">Entree</option>
-                <option value="SALAD">Salad</option>
-                <option value="DESSERT">Dessert</option>
-                <option value="SIDE">Side</option>
-            </select>
-        </div>
-        <div class="col-6 col-md-3">
-            <label class="form-label small text-muted mb-1" for="rfMeal">Meal</label>
-            <select id="rfMeal" data-field="meal" class="form-select">
-                <option value="BREAKFAST">Breakfast</option>
-                <option value="LUNCH">Lunch</option>
-                <option value="DINNER">Dinner</option>
-            </select>
-        </div>
-        <div class="col-6 col-md-3">
-            <label class="form-label small text-muted mb-1" for="rfServings">Servings</label>
-            <input type="number" min="0" id="rfServings" data-field="servings" class="form-control">
-        </div>
-        <div class="col-6 col-md-3">
-            <label class="form-label small text-muted mb-1" for="rfMinPeriod">Repeat after (weeks)</label>
-            <input type="number" min="0" id="rfMinPeriod" data-field="min_period_weeks" class="form-control">
-        </div>
-        <div class="col-12">
-            <div class="form-check">
-                <input type="checkbox" class="form-check-input" id="rfEnabled" data-field="enabled">
-                <label class="form-check-label" for="rfEnabled">Include in weekly auto-selection</label>
+    <div class="recipe-doc markdown-content">
+        <input type="text" class="doc-title" data-field="name" placeholder="Recipe name" aria-label="Recipe name">
+
+        <p class="doc-servings">
+            <span>Servings:</span>
+            <input type="number" min="0" class="doc-num" data-field="servings" aria-label="Servings">
+            <input type="text" class="doc-note" data-field="servings_note" placeholder="add a note (optional)" aria-label="Servings note">
+        </p>
+
+        {# Pages move their photo block in here so the photo shows where it will in the recipe. #}
+        <div class="doc-photo-slot"></div>
+
+        <h2>Ingredients</h2>
+        <div class="rich-host" data-md="ingredients_md"></div>
+
+        <h2>Instructions</h2>
+        <div class="rich-host" data-md="instructions_md"></div>
+    </div>
+  </div>
+
+  <div class="form-card">
+        <h3 class="form-card-title">Shopping list and settings</h3>
+        <div class="row g-2 mb-2">
+            <div class="col-6 col-md-4">
+                <label class="form-label small text-muted mb-1" for="rfCategory">Type</label>
+                <select id="rfCategory" data-field="category" class="form-select">
+                    <option value="ENTREE">Entree</option>
+                    <option value="SALAD">Salad</option>
+                    <option value="DESSERT">Dessert</option>
+                    <option value="SIDE">Side</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-4">
+                <label class="form-label small text-muted mb-1" for="rfMeal">Meal</label>
+                <select id="rfMeal" data-field="meal" class="form-select">
+                    <option value="BREAKFAST">Breakfast</option>
+                    <option value="LUNCH">Lunch</option>
+                    <option value="DINNER">Dinner</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-4">
+                <label class="form-label small text-muted mb-1" for="rfMinPeriod">Repeat after (weeks)</label>
+                <input type="number" min="0" id="rfMinPeriod" data-field="min_period_weeks" class="form-control">
+            </div>
+            <div class="col-12">
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="rfEnabled" data-field="enabled">
+                    <label class="form-check-label" for="rfEnabled">Include in weekly auto-selection</label>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class="section-label">Ingredients</div>
-    <div class="rich-host" data-md="ingredients_md"></div>
-
-    <div class="section-label">Instructions</div>
-    <div class="rich-host" data-md="instructions_md"></div>
-
-    <div class="section-label">Shopping list items</div>
-    <p class="text-muted small mb-2">Simple grocery names and amounts. These build the shopping list.</p>
-    <div class="panel mb-2"><div class="ing-rows"></div></div>
-    <button type="button" class="btn btn-sm btn-outline-primary add-ing">+ Add item</button>
+        <div class="small text-muted mb-1">Shopping list items: simple grocery names and amounts.</div>
+        <div class="panel mb-2"><div class="ing-rows"></div></div>
+        <button type="button" class="btn btn-sm btn-outline-primary add-ing">+ Add item</button>
+  </div>
     <datalist id="knownFoodsList"></datalist>
 </div>
