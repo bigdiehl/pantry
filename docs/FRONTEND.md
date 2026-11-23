@@ -105,6 +105,10 @@ List rows are keyed `"<Category>::<food name>"`; custom items by index. When the
 server's `_week_plan.created` differs from the stored `week`, checks and dismissals
 reset so each plan starts a clean checklist.
 
+The print button POSTs `{dismissed, custom}` to `/download_shopping_list_pdf` (new tab)
+so the PDF matches the list: removed items left out, "My items" included. Checked items
+still print. The weekly email uses the same PDF (`_shopping_list_pdf`).
+
 ## Conventions
 
 - `html, body` use `overflow-x: clip`, not `hidden`: `hidden` on both makes body a scroll

@@ -210,3 +210,42 @@ def test_servings_note_round_trip(client, app_module):
     assert client.post("/editor/recipe/pending/weeknight_tacos", json=form).status_code == 200
     md = open(f"{app_module.PENDING_DIR}/weeknight_tacos/recipe.md").read()
     assert "Servings: 12\n" in md
+
+
+def test_recipe_name_comes_from_markdown_title(client, app_module):
+    import os
+    d = os.path.join(app_module.PENDING_DIR, "pb_and_j")
+    os.makedirs(d)
+    with open(os.path.join(d, "recipe.yaml"), "w") as f:
+        f.write("name: Pb And J\nservings: 1\nmeal: lunch\ncategory: side\ningredients: []\n")
+    with open(os.path.join(d, "recipe.md"), "w") as f:
+        f.write("# PB & J\n\nServings: 1\n")
+    assert client.get("/editor/recipe/pending/pb_and_j").get_json()["metadata"]["name"] == "PB & J"
+    assert "PB \\u0026 J" in client.get("/recipes_list").get_data(as_text=True)
+    # No markdown title: fall back to recipe.yaml
+    os.remove(os.path.join(d, "recipe.md"))
+    assert app_module._recipe_name(d, "pb_and_j") == "Pb And J"
+
+
+def test_shopping_list_pdf_numbers_recipes(client, app_module, monkeypatch):
+    captured = {}
+    real = app_module.render_template
+    monkeypatch.setattr(app_module, "render_template",
+                        lambda name, **ctx: captured.update(ctx) or real(name, **ctx))
+    client.post("/recipes_list/toggle/butternut_squash_soup")
+    client.post("/recipes_list/toggle/test_recipe")
+    state = {"dismissed": [], "custom": [{"name": "milk", "quantity": "1 gal"}]}
+    resp = client.post("/download_shopping_list_pdf", data={"state": __import__("json").dumps(state)})
+    assert resp.status_code == 200 and resp.data.startswith(b"%PDF")
+    assert captured["recipes"] == ["Butternut Squash Soup", "Test Recipe"]
+    to_buy = dict(captured["sections"][0]["groups"])
+    assert to_buy["My items"][0]["name"] == "milk"
+    rows = [i for cat, items in captured["sections"][0]["groups"] for i in items if cat != "My items"]
+    assert rows and all(i["recipes"] for i in rows)
+    assert {n for i in rows for n in i["recipes"].split(", ")} <= {"1", "2"}
+
+    # Removed items stay off the printout
+    cat, items = next((c, i) for c, i in captured["sections"][0]["groups"] if c != "My items")
+    key = f"{cat}::{items[0]['name']}"
+    client.post("/download_shopping_list_pdf", data={"state": __import__("json").dumps({"dismissed": [key]})})
+    assert items[0]["name"] not in [i["name"] for c, its in captured["sections"][0]["groups"] if c == cat for i in its]

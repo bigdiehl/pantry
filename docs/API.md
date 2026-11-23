@@ -13,7 +13,7 @@ JSON unless noted. Routes that need a missing API key return 503 with `{error}`.
 |-------|------|
 | `POST /recipes_list/toggle/<slug>` | Toggle selection -> `{success, selected}` |
 | `POST /deselect/<slug>` | Deselect |
-| `GET /markdown/recipe/<name>` | `{filename, content}` rendered HTML; `name` is the title-cased slug |
+| `GET /markdown/recipe/<name>` | `{filename, content}` rendered HTML; `name` is the recipe name (markdown title) |
 | `GET /recipes/<slug>/<file>` | File from a saved recipe (also `/pending/<slug>/<file>`, `/archived/<slug>/<file>`) |
 | `GET /api/features` | `{email_enabled, import_enabled}` |
 
@@ -22,7 +22,7 @@ JSON unless noted. Routes that need a missing API key return 503 with `{error}`.
 | Route | Does |
 |-------|------|
 | `GET /markdown/shopping_list?show_sources=` | List as HTML |
-| `GET /download_shopping_list_pdf` | PDF |
+| `GET/POST /download_shopping_list_pdf` | Printable PDF (inline): numbered recipes + Item/Quantity/Recipe tables. POST form field `state` = `{dismissed, custom}` from the list page |
 | `POST /send_list` | Email the PDF |
 
 ## Editor

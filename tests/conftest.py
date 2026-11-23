@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import yaml
 import sys
 import tempfile
 from pathlib import Path
@@ -26,7 +27,8 @@ def _populate(data_dir: Path) -> None:
         (data_dir / "recipes" / sub).mkdir(parents=True, exist_ok=True)
     for recipe in FIXTURES.iterdir():
         shutil.copytree(recipe, saved / recipe.name)
-        (saved / recipe.name / "recipe.md").write_text(f"# {recipe.name}\n\nCook it.\n")
+        name = yaml.safe_load((recipe / "recipe.yaml").read_text())["name"]
+        (saved / recipe.name / "recipe.md").write_text(f"# {name}\n\nCook it.\n")
 
 
 @pytest.fixture

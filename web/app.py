@@ -22,7 +22,7 @@ from weasyprint import HTML, CSS
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from recipe_core.recipe_lib import RecipeData, CategoryType, MealType, FoodType, parse_quantity
+from recipe_core.recipe_lib import RecipeData, CategoryType, MealType, FoodType, parse_quantity, recipe_title
 from recipe_core.foods import list_foods, create_food, update_food, delete_food
 from recipe_core.shopping_list import (
     find_recipe_dirs,
@@ -153,6 +153,20 @@ def _load_category_meal(recipe_dir: str, slug: str) -> tuple[str, str]:
             logger.warning(f"Failed to load recipe data for {slug}: {e}")
     return category, meal
 
+def _recipe_name(recipe_dir: str, slug: str) -> str:
+    """Display name: recipe.md's `# Title`, else recipe.yaml `name`, else the slug."""
+    title = recipe_title(recipe_dir)
+    if title:
+        return title
+    try:
+        with open(osp.join(recipe_dir, "recipe.yaml")) as f:
+            raw = yaml.safe_load(f) or {}
+        if isinstance(raw, dict) and raw.get("name"):
+            return str(raw["name"])
+    except (OSError, yaml.YAMLError):
+        pass
+    return slug.replace("_", " ").title()
+
 def get_all_recipes() -> list[Recipe]:
     """
     Build the current recipe list from the filesystem, enriched with
@@ -172,7 +186,7 @@ def get_all_recipes() -> list[Recipe]:
         recipes.append(Recipe(
             slug             = slug,
             path             = str(path),
-            name             = slug.replace("_", " ").title(),
+            name             = _recipe_name(recipe_dir, slug),
             md_filename      = _find_md_file(recipe_dir),
             category         = category,
             meal             = meal,
@@ -293,21 +307,9 @@ def update_recipe_usage(slugs: list[str]):
 
 def _email_shopping_list(slugs: list[str], recipients: list[str]):
     """Email a PDF shopping list for the given recipes."""
-    lists, metas = _get_shopping_list_data()
-    main, secondary = get_merged_shopping_list(slugs, lists)
-    names = [metas[slug].name for slug in slugs]
-    md = generate_shopping_list_md(names, slugs, main, secondary, show_sources=False)
-    html_content = markdown.markdown(md, extensions=["tables", "fenced_code", "nl2br", "sane_lists"])
-    full_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-        @page {{ size: letter; margin: 0.75in; }}
-        body {{ font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #000; }}
-        h1 {{ font-size: 20pt; margin: 0 0 0.5em; padding-bottom: 0.3em; border-bottom: 2px solid #333; }}
-        h2 {{ font-size: 16pt; margin: 1em 0 0.4em; padding-bottom: 0.2em; border-bottom: 1px solid #666; page-break-after: avoid; }}
-        table {{ width: 100%; border-collapse: collapse; margin-bottom: 1em; page-break-inside: avoid; }}
-        th, td {{ padding: 6px 10px; border: 1px solid #999; text-align: left; }}
-        th {{ background-color: #f0f0f0; }}
-    </style></head><body>{html_content}</body></html>"""
-    pdf_bytes = HTML(string=full_html).write_pdf()
+    _, metas = _get_shopping_list_data()
+    names = [metas[slug].name for slug in slugs if slug in metas]
+    pdf_bytes = _shopping_list_pdf(slugs=slugs)
 
     today = date.today().isoformat()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -630,161 +632,60 @@ def send_list():
         logger.error("Failed to send email: %s", e, exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/download_shopping_list_pdf")
-def download_shopping_list_pdf():
-    """Generate and download shopping list as PDF"""
-    selected_slugs = [r.slug for r in get_all_recipes() if r.selected]
+def _shopping_list_pdf(dismissed: set[str] | None = None, custom: list[dict] | None = None,
+                       slugs: list[str] | None = None) -> bytes:
+    """Printable shopping list PDF: numbered recipes, then Item / Quantity / Recipe tables
+    (recipe column uses those numbers). `dismissed` holds the list page's removed item keys
+    ("Category::name"); `custom` its added items ({name, quantity}). `slugs` defaults to the
+    current selection."""
+    dismissed = dismissed or set()
+    all_recipes = get_all_recipes()
+    names_by_slug = {r.slug: r.name for r in all_recipes}
+    if slugs is None:
+        slugs = [r.slug for r in sorted(all_recipes, key=lambda r: r.name) if r.selected]
+    number = {slug: i + 1 for i, slug in enumerate(slugs)}
 
-    if not selected_slugs:
-        return "No recipes selected", 400
+    lists, _ = _get_shopping_list_data()
+    main, secondary = get_merged_shopping_list(slugs, lists) if slugs else ({}, {})
 
-    lists, metas = _get_shopping_list_data()
-    main, secondary = get_merged_shopping_list(selected_slugs, lists)
-    names = [metas[slug].name for slug in selected_slugs]
-    md = generate_shopping_list_md(names, selected_slugs, main, secondary, show_sources=False)
+    def groups(merged: dict) -> list:
+        out = []
+        for category, ingredients in merged.items():
+            items = [{
+                "name": mi.food.get_name(),
+                "quantity": mi.format_quantity(slugs),
+                "recipes": ", ".join(str(n) for n in sorted(number[s] for s in mi.all_source_slugs() if s in number)),
+            } for mi in ingredients if f"{category}::{mi.food.get_name()}" not in dismissed]
+            if items:
+                out.append((category, items))
+        return out
 
-    # Convert markdown to HTML
-    html_content = markdown.markdown(md, extensions=[
-        "tables",
-        "fenced_code",
-        "nl2br",
-        "sane_lists"
-    ])
-
-    # Wrap in proper HTML document with styling
-    full_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            @page {{
-                size: letter;
-                margin: 0.75in;
-            }}
-            body {{
-                font-family: Arial, sans-serif;
-                font-size: 11pt;
-                line-height: 1.5;
-                color: #000;
-            }}
-            h1 {{
-                font-size: 20pt;
-                font-weight: bold;
-                color: #000;
-                margin-top: 0;
-                margin-bottom: 0.5em;
-                padding-bottom: 0.3em;
-                border-bottom: 2px solid #333;
-            }}
-            h2 {{
-                font-size: 16pt;
-                font-weight: bold;
-                color: #000;
-                margin-top: 1em;
-                margin-bottom: 0.4em;
-                padding-bottom: 0.2em;
-                border-bottom: 1px solid #666;
-                page-break-after: avoid;
-            }}
-            h3 {{
-                font-size: 13pt;
-                font-weight: bold;
-                color: #000;
-                margin-top: 0.8em;
-                margin-bottom: 0.3em;
-                padding-left: 0.3em;
-                border-left: 3px solid #333;
-                page-break-after: avoid;
-            }}
-            p {{
-                margin-bottom: 0.5em;
-            }}
-            ul, ol {{
-                margin-bottom: 0.5em;
-                padding-left: 1.5em;
-            }}
-            li {{
-                margin-bottom: 0.2em;
-                page-break-inside: avoid;
-            }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 1em;
-                page-break-inside: avoid;
-            }}
-            th, td {{
-                padding: 6px 10px;
-                border: 1px solid #999;
-                text-align: left;
-            }}
-            th {{
-                background-color: #f0f0f0;
-                font-weight: bold;
-            }}
-            tr {{
-                page-break-inside: avoid;
-            }}
-            strong {{
-                font-weight: bold;
-            }}
-            em {{
-                font-style: italic;
-            }}
-            code {{
-                background-color: #f0f0f0;
-                padding: 2px 4px;
-                border-radius: 2px;
-                font-family: monospace;
-                font-size: 0.9em;
-            }}
-            pre {{
-                background-color: #f0f0f0;
-                padding: 0.5em;
-                border-radius: 3px;
-                margin-bottom: 0.5em;
-                overflow-x: auto;
-            }}
-            pre code {{
-                background-color: transparent;
-                padding: 0;
-            }}
-            blockquote {{
-                border-left: 3px solid #999;
-                padding-left: 0.75em;
-                margin: 0.5em 0;
-                color: #333;
-                font-style: italic;
-            }}
-            hr {{
-                border: none;
-                border-top: 1px solid #999;
-                margin: 1em 0;
-            }}
-        </style>
-    </head>
-    <body>
-        {html_content}
-    </body>
-    </html>
-    """
-
-    # Generate PDF
-    pdf_io = BytesIO()
-    HTML(string=full_html).write_pdf(pdf_io)
-    pdf_io.seek(0)
-
-    # Generate filename with today's date
-    today = date.today().isoformat()
-    filename = f"shopping-list-{today}.pdf"
-
-    return send_file(
-        pdf_io,
-        mimetype='application/pdf',
-        as_attachment=True,
-        download_name=filename
+    mine = [{"name": str(c.get("name", "")).strip(), "quantity": str(c.get("quantity") or ""), "recipes": ""}
+            for c in (custom or []) if isinstance(c, dict) and str(c.get("name", "")).strip()]
+    to_buy = ([("My items", mine)] if mine else []) + groups(main)
+    html = render_template(
+        "shopping_list_pdf.html",
+        today=date.today().strftime("%A, %B %-d, %Y"),
+        recipes=[names_by_slug.get(s, s.replace("_", " ").title()) for s in slugs],
+        sections=[{"title": "To buy", "groups": to_buy},
+                  {"title": "Probably have", "groups": groups(secondary)}],
     )
+    return HTML(string=html).write_pdf()
+
+@app.route("/download_shopping_list_pdf", methods=["GET", "POST"])
+def download_shopping_list_pdf():
+    """Shopping list PDF, shown inline. The list page POSTs its client-side state as a
+    form field `state` = JSON {dismissed: [...], custom: [{name, quantity}]}."""
+    try:
+        client_state = json.loads(request.form.get("state") or "{}")
+    except ValueError:
+        client_state = {}
+    if not isinstance(client_state, dict):
+        client_state = {}
+    pdf = _shopping_list_pdf(dismissed=set(client_state.get("dismissed") or []),
+                             custom=client_state.get("custom") or [])
+    return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
+                     download_name=f"shopping-list-{date.today().isoformat()}.pdf")
 
 # ---------------------------------------------------------------------------
 # Routes — recipe list
@@ -1225,13 +1126,12 @@ def _rewrite_recipe_image_tag(status: str, slug: str, recipe_dir: str, image_fil
     default) is preserved — replacing an image doesn't reset its size.
     """
     yaml_path = osp.join(recipe_dir, "recipe.yaml")
-    name = slug.replace("_", " ").title()
+    name = _recipe_name(recipe_dir, slug)
     servings = ""
     if osp.exists(yaml_path):
         try:
             with open(yaml_path) as f:
                 loaded = yaml.safe_load(f) or {}
-            name = loaded.get("name") or name
             servings = loaded.get("servings", "")
         except yaml.YAMLError:
             pass
@@ -1376,7 +1276,7 @@ def _list_flat_recipes(dir_path: str, status: str) -> list[dict]:
                 category, meal = _load_category_meal(recipe_dir, slug)
                 recipes.append({
                     "slug": slug,
-                    "name": slug.replace("_", " ").title(),
+                    "name": _recipe_name(recipe_dir, slug),
                     "category": category,
                     "meal": meal,
                     "status": status
@@ -1439,7 +1339,7 @@ def load_recipe(status, slug):
             raw = {}
 
     metadata = {
-        "name": raw.get("name") or slug.replace("_", " ").title(),
+        "name": _recipe_name(recipe_dir, slug),
         "servings": raw.get("servings", 1),
         "category": str(raw.get("category", DEFAULT_CATEGORY)).upper(),
         "meal": str(raw.get("meal", DEFAULT_MEAL)).upper(),

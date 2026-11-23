@@ -9,6 +9,10 @@
             <h1>Shopping list</h1>
             <div class="meta" id="remainingCount"></div>
         </div>
+        <div class="header-actions">
+        <button class="icon-btn" type="button" onclick="printList()" aria-label="Print list (PDF)" title="Print list (PDF)">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M7 9V4h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v6H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
         <div class="dropdown">
             <button class="icon-btn" data-bs-toggle="dropdown" aria-label="List options">
                 <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg>
@@ -19,7 +23,12 @@
                 <li><button class="dropdown-item" onclick="clearCustom()">Clear my added items</button></li>
             </ul>
         </div>
+        </div>
     </div>
+
+    <form id="printForm" method="post" action="{{ url_for('download_shopping_list_pdf') }}" target="_blank" hidden>
+        <input type="hidden" name="state">
+    </form>
 
     <div class="chip-row" aria-label="Selected recipes">
         {% for recipe in recipes %}
@@ -104,6 +113,16 @@ function loadState() {
             }
         }
     } catch (e) { /* start fresh */ }
+}
+
+// Open the PDF in a new tab, minus removed items and plus "My items".
+function printList() {
+    const form = document.getElementById('printForm');
+    form.elements.state.value = JSON.stringify({
+        dismissed: [...dismissedKeys],
+        custom: customItems.map(i => ({ name: i.name, quantity: i.quantity })),
+    });
+    form.submit();
 }
 
 function saveState() {

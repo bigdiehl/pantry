@@ -92,6 +92,7 @@ in a recipe degrades to an uncategorized item instead of breaking the list.
 
 ## Slugs and names
 
-Slug = directory name. Display name on lists is `slug.title()`; `recipe.yaml` `name`
-is used in chat, the editor, and rendered markdown. `/markdown/recipe/<name>` looks
-up by the title-cased slug, not the YAML name.
+Slug = directory name. The recipe's name everywhere (lists, chat, editor, shopping list,
+PDF) is the `# Title` line of `recipe.md` (`recipe_title()`), falling back to `recipe.yaml`
+`name`, then the title-cased slug. Saving from the editor writes the same name to both.
+`/markdown/recipe/<name>` looks up by that name.

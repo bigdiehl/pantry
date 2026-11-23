@@ -114,7 +114,6 @@
         $('editActions').hidden = !editing;
         $('detailMeta').textContent = r ? (editing ? 'Editing' : (cur.status === 'saved' ? '' : LABEL[cur.status])) : '';
         if (!r) return;
-        $('detailTitle').textContent = r.name;
         const t = $('detailToggle');
         t.hidden = cur.status !== 'saved';
         t.classList.toggle('on', !!r.selected);
@@ -213,7 +212,7 @@
         try {
             const out = await postJSON(`/editor/recipe/${cur.status}/${encodeURIComponent(cur.slug)}`, draft);
             const r = find(cur.slug, cur.status);
-            if (r) { r.category = draft.category; r.meal = draft.meal; }
+            if (r) { r.name = draft.name.trim() || r.name; r.category = draft.category; r.meal = draft.meal; }
             $('detailContent').innerHTML = out.preview_html || '';
             setDirty(false);
             render();

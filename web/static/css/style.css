@@ -444,13 +444,8 @@ details.collapsible[open] > summary .chev { transform: rotate(90deg); }
     flex: none;
 }
 .recipe-detail-title { flex: 1; min-width: 0; }
-.recipe-detail-title > div:first-child {
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.pane-title-meta { font-size: 0.78rem; color: var(--muted); }
+.pane-title-meta { font-size: 0.85rem; color: var(--muted); }
+.header-actions { display: inline-flex; align-items: center; gap: 2px; }
 .detail-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .detail-actions[hidden] { display: none; }
 .recipe-detail-body {

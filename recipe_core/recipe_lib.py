@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from enum import Enum
 from typing import Optional, List, Union
@@ -403,6 +404,33 @@ class RecipeData(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: str) -> "RecipeData":
+        """Load recipe.yaml. The name comes from recipe.md's title when there is one."""
         with open(path) as f:
             data = yaml.safe_load(f)
+        title = recipe_title(os.path.dirname(path))
+        if title:
+            data["name"] = title
         return cls(**data)
+
+
+_H1_RE = re.compile(r"^#[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
+
+
+def recipe_title(recipe_dir: str) -> str:
+    """The recipe's name: the `# Title` line of its markdown (recipe.md, else any .md).
+    Empty string if there is no markdown or no title."""
+    md_path = os.path.join(recipe_dir, "recipe.md")
+    if not os.path.exists(md_path):
+        try:
+            md_files = sorted(f for f in os.listdir(recipe_dir) if f.endswith(".md"))
+        except OSError:
+            return ""
+        if not md_files:
+            return ""
+        md_path = os.path.join(recipe_dir, md_files[0])
+    try:
+        with open(md_path, encoding="utf-8") as f:
+            m = _H1_RE.search(f.read())
+    except OSError:
+        return ""
+    return m.group(1).strip() if m else ""
